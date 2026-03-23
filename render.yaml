@@ -1,0 +1,44 @@
+services:
+  # Python Backend
+  - type: web
+    name: poly-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    plan: free # Change to paid for better performance
+    envVars:
+      - key: PRIVATE_KEY
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: API_SECRET
+        sync: false
+      - key: API_PASSPHRASE
+        sync: false
+      - key: PROXY_URL
+        sync: false
+      - key: PROXIES_LIST
+        sync: false
+      - key: RPC_URL
+        value: https://1rpc.io/matic
+      - key: USE_PROXY_WALLET
+        value: "1"
+      - key: MANUAL_PROXY
+        value: "0x0411F017251a5918422FECc2cDeA558a0A5c6115"
+      - key: TRADE_AMOUNT_USDC
+        value: "1.0"
+      - key: POLL_INTERVAL_SECONDS
+        value: "15"
+
+  # React Frontend (Static Site)
+  - type: static
+    name: poly-frontend
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishDir: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: poly-backend
+          property: host
