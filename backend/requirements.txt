@@ -1,0 +1,6 @@
+py-clob-client
+fastapi
+uvicorn
+python-dotenv
+requests
+web3
