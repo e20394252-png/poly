@@ -31,10 +31,10 @@ services:
         value: "15"
 
   # React Frontend (Static Site)
-  - type: static_site
+  - type: web
     name: poly-frontend
-
     env: static
+
     buildCommand: npm install && npm run build
     staticPublishDir: dist
     envVars:
