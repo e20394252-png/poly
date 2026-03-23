@@ -53,9 +53,11 @@ const App: React.FC = () => {
   const [data, setData] = useState<BotStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
   const fetchData = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/status');
+      const response = await fetch(`${API_URL}/api/status`);
       const json = await response.json();
       setData(json);
     } catch (error) {
@@ -72,12 +74,12 @@ const App: React.FC = () => {
   }, []);
 
   const handleStart = async () => {
-    await fetch('http://localhost:8000/api/start', { method: 'POST' });
+    await fetch(`${API_URL}/api/start`, { method: 'POST' });
     fetchData();
   };
 
   const handleStop = async () => {
-    await fetch('http://localhost:8000/api/stop', { method: 'POST' });
+    await fetch(`${API_URL}/api/stop`, { method: 'POST' });
     fetchData();
   };
 
