@@ -377,6 +377,7 @@ def filter_short_term_opportunities(events_data):
         except Exception:
             continue
             
+    print(f"[{datetime.now().isoformat()}] Filtered {len(opportunities)} events from {len(events_data)} total active events.")
     return opportunities
 
 def analyze_and_trade(opportunities, placed_trades):
@@ -394,12 +395,16 @@ def analyze_and_trade(opportunities, placed_trades):
     print(f"=====================================")
     print(f"[{datetime.now().isoformat()}] Found {len(opportunities)} impending events.")
     
+    total_markets_scanned = 0
+    opportunities_found = 0
+
     for event in opportunities:
-        print(f"\nAnalyzing Event: {event.get('title')}")
-        print(f"Closes at: {event.get('endDate')}")
+        # print(f"\nAnalyzing Event: {event.get('title')}")
+        # print(f"Closes at: {event.get('endDate')}")
         
         markets = event.get('markets', [])
         for market in markets:
+            total_markets_scanned += 1
             if not market.get('active') or market.get('closed'):
                 continue
             
@@ -451,9 +456,11 @@ def analyze_and_trade(opportunities, placed_trades):
                     
                 # We are looking for "high probability" outcomes (expanded for scalping)
                 if price_f >= 0.40 and price_f <= 0.98:
+                    opportunities_found += 1
                     print(f"[{datetime.now().isoformat()}]      [!] SCALPING OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
                     
                     if client is None:
+
                         print(f"[{datetime.now().isoformat()}]          -> Cannot place order: CLOB Client is not initialized.")
                         continue
                         
@@ -533,6 +540,8 @@ def analyze_and_trade(opportunities, placed_trades):
                             
                 else:
                     print(f"[{datetime.now().isoformat()}]      - Outcome '{outcome}': ${price_f:.2f} (Not high probability)")
+    
+    print(f"[{datetime.now().isoformat()}] Analysis Complete: Scanned {total_markets_scanned} markets, found {opportunities_found} opportunities.")
     print(f"=====================================")
             
 def update_balance_and_positions():
@@ -570,30 +579,11 @@ def update_balance_and_positions():
         if USE_PROXY_WALLET and global_state.proxy_address:
             # Check proxy wallet balance via RPC first (regular ERC20)
             try:
-                rpc_bal = get_rpc_balance(global_state.proxy_address)
-                
-                # Also check USDC.e inside Polymarket CTF Exchange contract
-                # Polymarket holds user funds as collateral in their exchange
-                exchange_bal = 0
-                try:
-                    # CTF Exchange contract on Polygon
-                    exchange_addr = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
-                    usdc_e = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-                    rpc = RPC_URL or "https://1rpc.io/matic"
-                    # Check allowance/balance via balanceOf on USDC.e for proxy wallet
-                    proxy = global_state.proxy_address
-                    data = "0x70a08231" + proxy[2:].zfill(64)
-                    payload = {"jsonrpc": "2.0", "method": "eth_call", "params": [{"to": usdc_e, "data": data}, "latest"], "id": 1}
-                    response = requests.post(rpc, json=payload, proxies={"http": None, "https": None}, timeout=30).json()
-                    if 'result' in response:
-                        exchange_bal = int(response['result'], 16) / 1e6
-                except: pass
-                
-                total = rpc_bal + exchange_bal
-                if total > 0:
-                    global_state.balance = total
-                    print(f"[{datetime.now().isoformat()}] Balance (proxy wallet): ${global_state.balance:.2f} (ERC20: ${rpc_bal:.2f}, Exchange: ${exchange_bal:.2f})")
-                else:
+                global_state.balance = get_rpc_balance(global_state.proxy_address)
+                print(f"[{datetime.now().isoformat()}] Balance (proxy wallet): ${global_state.balance:.2f}")
+
+                # If RPC balance is 0, try falling back to Data API
+                if global_state.balance == 0:
                     try:
                         url = f"https://data-api.polymarket.com/value?user={global_state.proxy_address}"
                         response = requests.get(url, timeout=30)
@@ -606,11 +596,12 @@ def update_balance_and_positions():
                                 portfolio_value = float(data.get('value', 0))
                             
                             global_state.balance = portfolio_value
-                            print(f"[{datetime.now().isoformat()}] Balance from Data API (portfolio value): ${global_state.balance:.2f}")
+                            print(f"[{datetime.now().isoformat()}] Balance from Data API (fallback): ${global_state.balance:.2f}")
                     except Exception as e2:
                         print(f"[{datetime.now().isoformat()}] Data API fallback failed: {e2}")
             except Exception as e:
                 print(f"[{datetime.now().isoformat()}] Error fetching proxy wallet balance: {e}")
+
 
 
         else:
