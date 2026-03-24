@@ -100,41 +100,53 @@ class BotState:
         self.current_action = "System Initialized"
         self.latency_ms = 0
         self.active_proxy = PROXY_URL
-        self.stop_event = threading.Event()
         self.last_poll = None
         self.trades_count = 0
         self.balance = 0.0
         self.realized_profit = 0.0
-        self.recent_trades = [] # List of {timestamp, title, outcome, price, size, status, error}
-        self.opportunities = [] # Current opportunities being analyzed
-        self.positions = [] # [{market_id, outcome, shares, avg_price, current_price, roi}]
+        self.recent_trades = []
+        self.opportunities = []
+        self.positions = []
+        self.proxy_address = None
         self.config = {
             "trade_amount": TRADE_AMOUNT_USDC,
             "poll_interval": POLL_INTERVAL_SECONDS,
-            "take_profit_threshold": 0.02  # Changed from 0.05 to 0.02 for scalping
+            "take_profit_threshold": 0.05
         }
+        self.stop_event = threading.Event()
+        self.logs = [] # NEW: Buffer for system logs
         self.address = None
-        self.proxy_address = None
 
-    def add_trade(self, trade_info):
-        self.recent_trades.insert(0, trade_info)
-        self.recent_trades = self.recent_trades[:50] # Keep last 50
+    def add_trade(self, trade):
+        self.recent_trades.insert(0, trade)
+        if len(self.recent_trades) > 50:
+            self.recent_trades.pop()
         self.trades_count += 1
+
+    def add_log(self, msg):
+        """Adds a message to the system log buffer."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {msg}"
+        print(log_entry) # Still print to stdout for Render
+        self.logs.insert(0, log_entry)
+        if len(self.logs) > 50:
+            self.logs.pop()
+
+global_state = BotState()
 
 # Optional hardcoded proxy wallet (funder) to match Polymarket "proxy wallet".
 # In EOA-only mode (default), we ignore proxy wallets to keep assets on the signer.
 MANUAL_PROXY = os.getenv("MANUAL_PROXY")
 
-global_state = BotState()
 global_state.proxy_address = MANUAL_PROXY
 
 # Initialize CLOB Client in background to avoid blocking server start
 client = None
 
 def init_client():
-    print(f"[{datetime.now().isoformat()}] init_client function started.")
+    global_state.add_log("init_client function started.")
     global client
-    print(f"[{datetime.now().isoformat()}] Checking API credentials...")
+    global_state.add_log("Checking API credentials...")
     if all([PRIVATE_KEY, API_KEY, API_SECRET, API_PASSPHRASE]):
         try:
             # from py_clob_client.clob_types import ApiCreds, SignatureType # SignatureType is missing in 0.34.6
@@ -144,20 +156,20 @@ def init_client():
             POLY_PROXY = 1
             
             creds = ApiCreds(api_key=API_KEY, api_secret=API_SECRET, api_passphrase=API_PASSPHRASE)
-            print(f"[{datetime.now().isoformat()}] Initializing CLOB Client...")
+            global_state.add_log("Initializing CLOB Client...")
             
             # Determine signature type and funder based on wallet mode
             if USE_PROXY_WALLET and global_state.proxy_address:
                 # POLY_PROXY mode (Magic Link / Google login)
                 signature_type = POLY_PROXY
                 funder = global_state.proxy_address
-                print(f"POLY_PROXY mode: funder={funder}")
+                global_state.add_log(f"POLY_PROXY mode: funder={funder}")
             else:
                 # EOA mode (standard wallet)
                 signature_type = EOA
                 import eth_account
                 funder = eth_account.Account.from_key(PRIVATE_KEY).address
-                print(f"EOA mode: funder={funder}")
+                global_state.add_log(f"EOA mode: funder={funder}")
 
             client = ClobClient(
                 host="https://clob.polymarket.com", 
@@ -167,22 +179,22 @@ def init_client():
                 signature_type=signature_type,
                 funder=funder,
             )
-            print(f"[{datetime.now().isoformat()}] ClobClient instance created: {client}")
+            global_state.add_log(f"ClobClient instance created: {client}")
             global_state.address = client.get_address()
-            print(f"[{datetime.now().isoformat()}] CLOB Client Initialized for Signer: {global_state.address}")
-            print(f"[{datetime.now().isoformat()}] Funder (Proxy Wallet): {funder}")
+            global_state.add_log(f"CLOB Client Initialized for Signer: {global_state.address}")
+            global_state.add_log(f"Funder (Proxy Wallet): {funder}")
             
             # Trigger initial sync once client is ready
-            print(f"[{datetime.now().isoformat()}] Triggering initial balance and positions update...")
+            global_state.add_log("Triggering initial balance and positions update...")
             update_balance_and_positions()
             
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Failed to initialize CLOB Client: {e}")
+            global_state.add_log(f"Failed to initialize CLOB Client: {e}")
             import traceback
             traceback.print_exc()
     else:
-        print(f"[{datetime.now().isoformat()}] API credentials are NOT complete.")
-        print(f"[{datetime.now().isoformat()}] Missing API Credentials in .env!")
+        global_state.add_log("API credentials are NOT complete.")
+        global_state.add_log("Missing API Credentials in .env!")
 
 threading.Thread(target=init_client, daemon=True).start()
 
@@ -326,43 +338,31 @@ def redeem_resolved_position(pos: dict[str, Any]) -> dict[str, Any]:
 def fetch_active_events():
     """Fetches active events from the Gamma API."""
     global_state.current_action = "Fetching Active Markets from Polymarket..."
-    print("Fetching active events from Gamma API (fetching up to 1000)...")
-    all_events = []
-    limit = 100
-    offset = 0
-    max_events = 1000
-    
     try:
-        proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
-        while len(all_events) < max_events:
-            url = f"{GAMMA_API_URL}/events?active=true&closed=false&limit={limit}&offset={offset}"
-            response = requests.get(url, proxies={"http": None, "https": None}, timeout=15)
-            response.raise_for_status()
-            
-            data = response.json()
-            if not data:
-                break
-                
-            all_events.extend(data)
-            offset += limit
-            
-            # Print progress
-            print(f"[{datetime.now().isoformat()}] Fetched {len(all_events)} events...")
-            
-        print(f"[{datetime.now().isoformat()}] Total active events fetched: {len(all_events)}")
+        all_events = []
+        # Sort by endDate DESC to get the soonest ones first
+        url = f"{GAMMA_API_URL}/events?active=true&closed=false&order=endDate&ascending=true&limit=1000"
+        global_state.add_log(f"Fetching active events from Gamma API (Sorted by soonest)...")
+        
+        # We fetch in one big chunk of 1000 now that we have sorting
+        response = requests.get(url, timeout=30)
+        if response.status_code == 200:
+            all_events = response.json()
+            global_state.add_log(f"Total active events fetched: {len(all_events)}")
+        
         return all_events
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Error fetching events: {e}")
-        return all_events
+        global_state.add_log(f"Error fetching events: {e}")
+        return []
 
 def filter_short_term_opportunities(events_data):
-    """Filters events that close very soon (e.g. within the next 1-24 hours)"""
+    """Filters events that close soon (Widened to 7 days)"""
     opportunities = []
     now = datetime.now(timezone.utc)
     
-    # Let's widen the window slightly for testing: events closing in next 1m to 24h
+    # Widened window: events closing in next 1m to 7 days
     min_time = now + timedelta(minutes=1)
-    max_time = now + timedelta(hours=24)
+    max_time = now + timedelta(days=7) 
     
     for event in events_data:
         try:
@@ -377,7 +377,7 @@ def filter_short_term_opportunities(events_data):
         except Exception:
             continue
             
-    print(f"[{datetime.now().isoformat()}] Filtered {len(opportunities)} events from {len(events_data)} total active events.")
+    global_state.add_log(f"Filtered {len(opportunities)} events from {len(events_data)} total active events.")
     return opportunities
 
 def analyze_and_trade(opportunities, placed_trades):

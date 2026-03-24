@@ -44,7 +44,8 @@ async def get_status(background_tasks: BackgroundTasks):
         "recent_trades": global_state.recent_trades,
         "opportunities": global_state.opportunities,
         "positions": global_state.positions,
-        "config": global_state.config
+        "config": global_state.config,
+        "logs": global_state.logs
     }
 
 @app.post("/api/start")

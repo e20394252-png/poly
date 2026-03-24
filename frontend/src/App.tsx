@@ -42,6 +42,7 @@ interface BotStatus {
   recent_trades: Trade[];
   opportunities: Opportunity[];
   positions: Position[];
+  logs: string[];
   config: {
     trade_amount: number;
     poll_interval: number;
@@ -140,8 +141,11 @@ const App: React.FC = () => {
         </div>
 
         <div className="card col-8">
-          <h2>ACTIVE SCAN RESULTS</h2>
-          <div className="table-container">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2>ACTIVE SCAN RESULTS</h2>
+            <span style={{ fontSize: '0.65rem', color: 'var(--text-dim)' }}>{data?.opportunities.length} markets targeted</span>
+          </div>
+          <div className="table-container" style={{ height: '300px' }}>
             <table>
               <thead>
                 <tr>
@@ -170,35 +174,32 @@ const App: React.FC = () => {
         </div>
 
         <div className="card col-4">
-          <h2>ENGINE CONFIG</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="stat-label">Polling Rate</span>
-              <span>{data?.config.poll_interval}s</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="stat-label">Last Ping</span>
-              <span style={{ fontSize: '0.75rem' }}>{data?.last_poll ? new Date(data.last_poll).toLocaleTimeString() : 'Never'}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="stat-label">Active Node</span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--primary)', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={data?.active_proxy}>
-                {data?.active_proxy ? data.active_proxy.split('@').pop() : 'Direct'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="stat-label">API Latency</span>
-              <span style={{ 
-                color: (data?.latency_ms ?? 0) === 0 ? 'var(--text-dim)' : 
-                       (data?.latency_ms ?? 0) < 0 ? 'var(--danger)' :
-                       (data?.latency_ms ?? 0) < 400 ? 'var(--success)' : 
-                       (data?.latency_ms ?? 0) < 1000 ? '#F59E0B' : 'var(--danger)',
-                fontWeight: 600,
-                fontSize: '0.85rem'
-              }}>
-                {(data?.latency_ms ?? 0) > 0 ? `${data?.latency_ms}ms` : ((data?.latency_ms ?? 0) < 0 ? 'Error' : 'Measuring...')}
-              </span>
-            </div>
+          <h2>SYSTEM LOGS</h2>
+          <div className="log-container" style={{ 
+            height: '300px', 
+            background: '#0a0a0a', 
+            padding: '10px', 
+            borderRadius: '4px', 
+            overflowY: 'auto',
+            fontFamily: 'monospace',
+            fontSize: '0.7rem'
+          }}>
+            {data?.logs.length === 0 ? (
+              <div style={{ color: '#444' }}>Initializing process logs...</div>
+            ) : (
+              data?.logs.map((log, i) => (
+                <div key={i} style={{ 
+                  marginBottom: '4px', 
+                  color: log.includes('Error') ? '#ef4444' : 
+                         log.includes('Success') ? '#22c55e' : 
+                         log.includes('OPPORTUNITY') ? '#a855f7' : '#9ca3af',
+                  borderLeft: log.includes('OPPORTUNITY') ? '2px solid #a855f7' : 'none',
+                  paddingLeft: log.includes('OPPORTUNITY') ? '6px' : '0'
+                }}>
+                  {log}
+                </div>
+              ))
+            )}
           </div>
         </div>
 
