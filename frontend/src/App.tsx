@@ -53,7 +53,12 @@ const App: React.FC = () => {
   const [data, setData] = useState<BotStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  let API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  
+  // If API_URL is just a hostname (common in Render blueprints), make it a full URL
+  if (API_URL && !API_URL.startsWith('http') && API_URL !== 'localhost:8000') {
+    API_URL = `https://${API_URL}.onrender.com`;
+  }
 
   const fetchData = async () => {
     try {
