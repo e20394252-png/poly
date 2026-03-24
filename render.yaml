@@ -30,13 +30,12 @@ services:
       - key: POLL_INTERVAL_SECONDS
         value: "15"
 
-  # React Frontend (Static Site as a Web Service with env: static)
-  - type: web
+  # React Frontend (Correct Static Site definition)
+  - type: static
     name: poly-frontend
-    env: static
     rootDir: frontend
     buildCommand: npm install && npm run build
-    publishDir: dist
+    staticPublishDir: dist
     envVars:
       - key: VITE_API_URL
         fromService:
