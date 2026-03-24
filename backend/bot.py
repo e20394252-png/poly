@@ -94,6 +94,9 @@ POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", 15))
 
 GAMMA_API_URL = "https://gamma-api.polymarket.com"
 
+# Focus categories (e.g. "Politics,Crypto,Sports")
+FOCUS_CATEGORIES = [c.strip() for c in os.getenv("FOCUS_CATEGORIES", "").split(',') if c.strip()]
+
 class BotState:
     def __init__(self):
         self.status = "stopped"
@@ -372,6 +375,12 @@ def filter_short_term_opportunities(events_data):
                 
             end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
             
+            # Category Filtering
+            if FOCUS_CATEGORIES:
+                event_tags = [t.get('label', '').lower() for t in event.get('tags', []) if isinstance(t, dict)]
+                if not any(cat.lower() in event_tags for cat in FOCUS_CATEGORIES):
+                    continue
+
             if min_time <= end_date <= max_time:
                 opportunities.append(event)
         except Exception:
