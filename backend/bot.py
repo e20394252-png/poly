@@ -408,18 +408,23 @@ def filter_short_term_opportunities(events: List[dict]) -> List[dict]:
         try:
             end_date_str = event.get('endDate')
             if not end_date_str:
+                global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - no endDate.")
                 continue
-                
+
             end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
-            
+
             # Category Filtering
             if FOCUS_CATEGORIES:
                 event_tags = [t.get('label', '').lower() for t in event.get('tags', []) if isinstance(t, dict)]
                 if not any(cat.lower() in event_tags for cat in FOCUS_CATEGORIES):
+                    global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - category mismatch. Tags: {event_tags}, Focus: {FOCUS_CATEGORIES}")
                     continue
 
-            if min_time <= end_date <= max_time:
-                opportunities.append(event)
+            if not (min_time <= end_date <= max_time):
+                global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - outside time window ({end_date}). Min: {min_time}, Max: {max_time}")
+                continue
+
+            opportunities.append(event)
         except Exception as e:
             print(f"ERROR in filter_short_term_opportunities loop: {e}", flush=True)
             continue
@@ -456,6 +461,7 @@ def analyze_and_trade(opportunities, placed_trades):
         for market in markets:
             total_markets_scanned += 1
             if not market.get('active') or market.get('closed'):
+                global_state.add_log(f"DEBUG: Market '{question}' filtered - not active or closed.")
                 continue
             
             question = market.get('question')
@@ -470,6 +476,7 @@ def analyze_and_trade(opportunities, placed_trades):
                 tick_f = 0.01
             
             if len(outcomes) != len(outcome_prices) or len(outcomes) != len(clob_token_ids):
+                global_state.add_log(f"DEBUG: Market {question}: Mismatch in outcomes, prices or token IDs. Skipping.")
                 print(f"[{datetime.now().isoformat()}]  -> Market {question}: Mismatch in outcomes, prices or token IDs. Skipping.")
                 continue
                 
@@ -480,12 +487,14 @@ def analyze_and_trade(opportunities, placed_trades):
                 token_id = clob_token_ids[i]
                 
                 if token_id in placed_trades:
+                    global_state.add_log(f"DEBUG: Outcome '{outcome}' for market '{question}' already traded. Skipping.")
                     print(f"[{datetime.now().isoformat()}]      - Outcome '{outcome}': Already traded. Skipping.")
                     continue
                 
                 try:
                     price_f = float(price_str)
                 except (ValueError, TypeError):
+                    global_state.add_log(f"DEBUG: Outcome '{outcome}' for market '{question}': Invalid price format '{price_str}'. Skipping.")
                     print(f"[{datetime.now().isoformat()}]      - Outcome '{outcome}': Invalid price format '{price_str}'. Skipping.")
                     continue
 
@@ -510,7 +519,7 @@ def analyze_and_trade(opportunities, placed_trades):
                     print(f"[{datetime.now().isoformat()}]      [!] SCALPING OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
                     
                     if client is None:
-
+                        global_state.add_log(f"DEBUG: Cannot place order for '{outcome}' - CLOB Client is not initialized.")
                         print(f"[{datetime.now().isoformat()}]          -> Cannot place order: CLOB Client is not initialized.")
                         continue
                         
@@ -577,6 +586,7 @@ def analyze_and_trade(opportunities, placed_trades):
                         })
                     except Exception as e:
                         print(f"[{datetime.now().isoformat()}]          -> Order Failed: {e}")
+                        global_state.add_log(f"DEBUG: Order for '{outcome}' failed: {e}")
                         global_state.add_trade({
                             "timestamp": datetime.now().isoformat(),
                             "title": event.get('title'),
@@ -589,6 +599,7 @@ def analyze_and_trade(opportunities, placed_trades):
                         })
                             
                 else:
+                    global_state.add_log(f"DEBUG: Outcome '{outcome}' for market '{question}': price ${price_f:.2f} is not within [0.01, 0.99] range.")
                     print(f"[{datetime.now().isoformat()}]      - Outcome '{outcome}': ${price_f:.2f} (Not high probability)")
     
     print(f"[{datetime.now().isoformat()}] Analysis Complete: Scanned {total_markets_scanned} markets, found {opportunities_found} opportunities.")
