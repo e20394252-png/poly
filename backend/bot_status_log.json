@@ -1,0 +1,28 @@
+{
+  "status": "stopped",
+  "current_action": "Syncing Balances & Active Positions...",
+  "latency_ms": 0,
+  "active_proxy": "http://modeler_10K1pe:KuwPa8FuLMy0@167.179.91.8:11416",
+  "last_poll": null,
+  "trades_count": 0,
+  "balance": 11.609716,
+  "realized_profit": 0.0,
+  "recent_trades": [],
+  "opportunities": [],
+  "positions": [],
+  "config": {
+    "trade_amount": 5.0,
+    "poll_interval": 15,
+    "take_profit_threshold": 0.05
+  },
+  "logs": [
+    "[14:48:53] Triggering initial balance and positions update...",
+    "[14:48:53] Funder (Proxy Wallet): 0x0411F017251a5918422FECc2cDeA558a0A5c6115",
+    "[14:48:53] CLOB Client Initialized for Signer: 0xD57d3F5BB3A3a2ce4796F9B7b8a9f01F51150485",
+    "[14:48:53] ClobClient instance created: <py_clob_client.client.ClobClient object at 0x0000012F63CE7B00>",
+    "[14:48:53] POLY_PROXY mode: funder=0x0411F017251a5918422FECc2cDeA558a0A5c6115",
+    "[14:48:53] Initializing CLOB Client...",
+    "[14:48:53] Checking API credentials...",
+    "[14:48:53] init_client function started."
+  ]
+}
