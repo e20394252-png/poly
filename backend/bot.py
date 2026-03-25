@@ -6,14 +6,15 @@ from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from py_clob_client.client import ClobClient
 import threading
-from typing import Any
+from typing import Any, List
 
 # Fix Windows console encoding (cp1251 can't handle all Unicode chars)
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    except Exception:
+    except Exception as e:
+        print(f"ERROR in init_client (setting proxy client): {e}", flush=True)
         pass
 
 from py_clob_client.clob_types import (
@@ -25,8 +26,37 @@ from py_clob_client.clob_types import (
 )
 from py_clob_client.order_builder.constants import BUY, SELL
 
+print("=== BOT STARTED ===", flush=True)
+
+
+
+def _get_rpc_balance_internal(addr: str, rpc_url: str, proxies: dict = None) -> float:
+    print(f"STEP: _get_rpc_balance_internal called for addr={addr}, rpc_url={rpc_url}", flush=True)
+    if not addr:
+        print("STEP: _get_rpc_balance_internal: addr is empty", flush=True)
+        return 0
+
+    tokens = ["0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"]
+    total_bal = 0
+    for token in tokens:
+        try:
+            data = "0x70a08231" + addr[2:].zfill(64)
+            payload = {"jsonrpc": "2.0", "method": "eth_call", "params": [{"to": token, "data": data}, "latest"], "id": 1}
+            print(f"STEP: _get_rpc_balance_internal: Fetching balance for token={token}, payload={payload}", flush=True)
+            response = requests.post(rpc_url, json=payload, proxies=proxies, timeout=10).json()
+            print(f"STEP: _get_rpc_balance_internal: Response for token={token}, response={response}", flush=True)
+
+            if 'result' in response:
+                total_bal += int(response['result'], 16) / 1e6
+        except Exception as e:
+            print(f"ERROR in _get_rpc_balance_internal for token {token}: {e}", flush=True)
+    print(f"STEP: _get_rpc_balance_internal: Total balance for {addr} = {total_bal}", flush=True)
+    return total_bal
+
+
 # Load configuration
 load_dotenv()
+
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
@@ -57,7 +87,8 @@ def select_best_proxy():
                 best_time = t
                 best_proxy = p
                 print(f"  -> {p.split('@')[-1]} OK! ({t:.2f}s)")
-        except:
+        except Exception as e:
+            print(f"ERROR in select_best_proxy: {e}", flush=True)
             print(f"  -> {p.split('@')[-1]} FAILED")
             pass
             
@@ -217,7 +248,8 @@ def _fetch_gamma_market_by_condition_id(condition_id: str) -> dict[str, Any] | N
         if isinstance(data, list) and data:
             return data[0]
         return None
-    except Exception:
+    except Exception as e:
+        print(f"ERROR in filter_short_term_opportunities: {e}", flush=True)
         return None
 
 
@@ -339,7 +371,9 @@ def redeem_resolved_position(pos: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 def fetch_active_events():
+    global_state.add_log("Entering fetch_active_events...")
     """Fetches active events from the Gamma API."""
+    print("STEP: Entering fetch_active_events", flush=True)
     global_state.current_action = "Fetching Active Markets from Polymarket..."
     try:
         all_events = []
@@ -353,12 +387,15 @@ def fetch_active_events():
             all_events = response.json()
             global_state.add_log(f"Total active events fetched: {len(all_events)}")
         
+        print(f"STEP: Fetched {len(all_events)} active events", flush=True)
         return all_events
     except Exception as e:
         global_state.add_log(f"Error fetching events: {e}")
         return []
 
-def filter_short_term_opportunities(events_data):
+def filter_short_term_opportunities(events: List[dict]) -> List[dict]:
+    print("STEP: Entering filter_short_term_opportunities", flush=True)
+    global_state.current_action = "Filtering short-term opportunities..."
     """Filters events that close soon (Widened to 7 days)"""
     opportunities = []
     now = datetime.now(timezone.utc)
@@ -367,7 +404,7 @@ def filter_short_term_opportunities(events_data):
     min_time = now + timedelta(minutes=1)
     max_time = now + timedelta(days=7) 
     
-    for event in events_data:
+    for event in events:
         try:
             end_date_str = event.get('endDate')
             if not end_date_str:
@@ -383,13 +420,17 @@ def filter_short_term_opportunities(events_data):
 
             if min_time <= end_date <= max_time:
                 opportunities.append(event)
-        except Exception:
+        except Exception as e:
+            print(f"ERROR in filter_short_term_opportunities loop: {e}", flush=True)
             continue
             
-    global_state.add_log(f"Filtered {len(opportunities)} events from {len(events_data)} total active events.")
+    global_state.add_log(f"Filtered {len(opportunities)} events from {len(events)} total active events.")
+    print(f"STEP: Found {len(opportunities)} short-term opportunities", flush=True)
     return opportunities
 
 def analyze_and_trade(opportunities, placed_trades):
+    print("STEP: Entering analyze_and_trade", flush=True)
+    global_state.add_log(f"Entering analyze_and_trade with {len(opportunities)} opportunities and {len(placed_trades)} placed trades.")
     """Analyzes markets within the events and decides on trades."""
     import json
     from py_clob_client.order_builder.constants import BUY
@@ -464,7 +505,7 @@ def analyze_and_trade(opportunities, placed_trades):
                 })
                     
                 # We are looking for "high probability" outcomes (expanded for scalping)
-                if price_f >= 0.40 and price_f <= 0.98:
+                if price_f >= 0.01 and price_f <= 0.99:
                     opportunities_found += 1
                     print(f"[{datetime.now().isoformat()}]      [!] SCALPING OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
                     
@@ -552,6 +593,8 @@ def analyze_and_trade(opportunities, placed_trades):
     
     print(f"[{datetime.now().isoformat()}] Analysis Complete: Scanned {total_markets_scanned} markets, found {opportunities_found} opportunities.")
     print(f"=====================================")
+    print("STEP: Exiting analyze_and_trade", flush=True)
+    global_state.add_log("Finished analyzing and trading.")
             
 def update_balance_and_positions():
     """Fetches current USDC balance and active positions from Polymarket."""
@@ -570,25 +613,12 @@ def update_balance_and_positions():
         # 2. Fetch USDC Balance
         # Use RPC to check the actual wallet holding funds
         # NOTE: RPC calls go DIRECTLY (no proxy) — Polygon RPC is not geo-blocked
-        def get_rpc_balance(addr):
-            if not addr: return 0
-            tokens = ["0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"]
-            rpc = RPC_URL or "https://1rpc.io/matic"
-            total_bal = 0
-            for token in tokens:
-                try:
-                    data = "0x70a08231" + addr[2:].zfill(64)
-                    payload = {"jsonrpc": "2.0", "method": "eth_call", "params": [{"to": token, "data": data}, "latest"], "id": 1}
-                    response = requests.post(rpc, json=payload, proxies={"http": None, "https": None}, timeout=10).json()
-                    if 'result' in response:
-                        total_bal += int(response['result'], 16) / 1e6
-                except: pass
-            return total_bal
-
         if USE_PROXY_WALLET and global_state.proxy_address:
             # Check proxy wallet balance via RPC first (regular ERC20)
             try:
-                global_state.balance = get_rpc_balance(global_state.proxy_address)
+                rpc_url = RPC_URL or "https://1rpc.io/matic"
+                proxies = {"http": None, "https": None}
+                global_state.balance = _get_rpc_balance_internal(global_state.proxy_address, rpc_url, proxies)
                 print(f"[{datetime.now().isoformat()}] Balance (proxy wallet): ${global_state.balance:.2f}")
 
                 # If RPC balance is 0, try falling back to Data API
@@ -615,23 +645,10 @@ def update_balance_and_positions():
 
         else:
             # EOA mode: use RPC
-            def get_rpc_balance(addr):
-                if not addr: return 0
-                tokens = ["0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"]
-                rpc = "https://1rpc.io/matic"
-                total_bal = 0
-                for token in tokens:
-                    try:
-                        data = "0x70a08231" + addr[2:].zfill(64)
-                        payload = {"jsonrpc": "2.0", "method": "eth_call", "params": [{"to": token, "data": data}, "latest"], "id": 1}
-                        proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
-                        response = requests.post(rpc, json=payload, proxies=proxies, timeout=30).json()
-                        if 'result' in response:
-                            total_bal += int(response['result'], 16) / 1e6
-                    except: pass
-                return total_bal
             try:
-                global_state.balance = get_rpc_balance(global_state.address)
+                rpc_url = RPC_URL or "https://1rpc.io/matic"
+                proxies = {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
+                global_state.balance = _get_rpc_balance_internal(global_state.address, rpc_url, proxies)
                 print(f"[{datetime.now().isoformat()}] Balance from RPC (EOA mode): ${global_state.balance:.2f}")
             except Exception as e:
                 print(f"[{datetime.now().isoformat()}] Error fetching EOA balance from RPC: {e}")
@@ -727,7 +744,8 @@ def monitor_take_profit():
                     try:
                         last_trade = client.get_last_trade_price(pos['token_id'])
                         current_price = float(last_trade.get('price', 0))
-                    except: pass
+                    except Exception as e:
+                        print(f"ERROR in monitor_take_profit (last_trade_price): {e}", flush=True)
 
                 # Final fallback to price from Data API (stored in position)
                 if current_price == 0:
@@ -811,6 +829,7 @@ def monitor_take_profit():
 def run_bot_loop():
     """Main trading loop."""
     print(f"\nStarting Polymarket Trading Bot")
+    global_state.add_log("Bot main loop started.")
     print(f"Trade Size: ${TRADE_AMOUNT_USDC} USDC | Poll Interval: {POLL_INTERVAL_SECONDS}s\n")
     
     placed_trades = set()
@@ -827,7 +846,8 @@ def run_bot_loop():
                 t0 = time.time()
                 requests.get("https://clob.polymarket.com/time", proxies={"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None, timeout=5)
                 global_state.latency_ms = int((time.time() - t0) * 1000)
-            except Exception:
+            except Exception as e:
+                print(f"ERROR in run_bot_loop (proxy latency check): {e}", flush=True)
                 global_state.latency_ms = -1
                 
             # Auto-rotate proxy if latency is terrible (>2000ms) or failed
@@ -844,15 +864,21 @@ def run_bot_loop():
                     try:
                         from py_clob_client.http_helpers import helpers
                         helpers._http_client = httpx.Client(proxy=PROXY_URL, timeout=httpx.Timeout(60.0))
-                    except: pass
+                    except Exception as e:
+                        print(f"ERROR in run_bot_loop (py_clob_client.http_helpers): {e}", flush=True)
             
+            print("STEP: Before update_balance_and_positions", flush=True)
             # Update analytics
             update_balance_and_positions()
+            print("STEP: After update_balance_and_positions", flush=True)
             monitor_take_profit()
-            
+            print("STEP: After monitor_take_profit", flush=True)
             events = fetch_active_events()
+            print("STEP: After fetch_active_events", flush=True)
             short_term = filter_short_term_opportunities(events)
+            print("STEP: After filter_short_term_opportunities", flush=True)
             analyze_and_trade(short_term, placed_trades)
+            print("STEP: After analyze_and_trade", flush=True)
             
             global_state.current_action = f"Sleeping for {POLL_INTERVAL_SECONDS}s..."
             print(f"\nWaiting {POLL_INTERVAL_SECONDS} seconds...")
@@ -868,4 +894,14 @@ def run_bot_loop():
     global_state.status = "stopped"
 
 if __name__ == "__main__":
-    run_bot_loop()
+    # Keep bot alive
+    while not global_state.stop_event.is_set():
+        try:
+            run_bot_loop()
+        except Exception as e:
+            import traceback
+            global_state.add_log(f"Critical Error in main loop: {e}")
+            traceback.print_exc()
+            
+        time.sleep(POLL_INTERVAL_SECONDS)
+
