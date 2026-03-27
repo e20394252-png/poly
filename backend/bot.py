@@ -514,9 +514,9 @@ def analyze_and_trade(opportunities, placed_trades):
                 })
                     
                 # We are looking for "high probability" outcomes (expanded for scalping)
-                if price_f >= 0.01 and price_f <= 0.99:
+                if price_f >= 0.85 and price_f <= 0.99:
                     opportunities_found += 1
-                    print(f"[{datetime.now().isoformat()}]      [!] SCALPING OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
+                    print(f"[{datetime.now().isoformat()}]      [!] HIGH PROBABILITY OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
                     
                     if client is None:
                         global_state.add_log(f"DEBUG: Cannot place order for '{outcome}' - CLOB Client is not initialized.")
