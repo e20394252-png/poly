@@ -150,12 +150,39 @@ class BotState:
         self.stop_event = threading.Event()
         self.logs = [] # NEW: Buffer for system logs
         self.address = None
+        
+        # Load persisted state on init
+        self.load_state()
+
+    def load_state(self):
+        import json
+        try:
+            with open('bot_status_data.json', 'r') as f:
+                data = json.load(f)
+                self.trades_count = data.get('trades_count', 0)
+                self.realized_profit = data.get('realized_profit', 0.0)
+                self.recent_trades = data.get('recent_trades', [])
+        except Exception:
+            pass # File doesn't exist or is corrupted, start fresh
+
+    def save_state(self):
+        import json
+        try:
+            with open('bot_status_data.json', 'w') as f:
+                json.dump({
+                    "trades_count": self.trades_count,
+                    "realized_profit": self.realized_profit,
+                    "recent_trades": self.recent_trades
+                }, f)
+        except Exception as e:
+            print(f"Error saving state to disk: {e}")
 
     def add_trade(self, trade):
         self.recent_trades.insert(0, trade)
         if len(self.recent_trades) > 50:
             self.recent_trades.pop()
         self.trades_count += 1
+        self.save_state()
 
     def add_log(self, msg):
         """Adds a message to the system log buffer."""

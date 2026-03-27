@@ -7,6 +7,8 @@ interface Position {
   outcome: string;
   entry_price: number;
   shares: number;
+  current_price?: number;
+  pnl_percent?: number;
   entry_timestamp: string;
 }
 
@@ -122,7 +124,7 @@ const App: React.FC = () => {
       <div className="grid">
         <div className="card col-3">
           <p className="stat-label">BANK BALANCE</p>
-          <p className="stat-value" style={{ color: 'var(--primary)' }}>${(data?.balance ?? 0).toFixed(2)} USDC</p>
+          <p className="stat-value gradient">${(data?.balance ?? 0).toFixed(2)} USDC</p>
         </div>
         <div className="card col-3">
           <p className="stat-label">TOTAL TRADES</p>
@@ -136,8 +138,8 @@ const App: React.FC = () => {
         </div>
         <div className="card col-3">
           <p className="stat-label">TRADE SIZE</p>
-          <p className="stat-value" style={{ fontSize: '1rem' }}>${data?.config?.trade_amount ?? 1.0} USDC (MIN)</p>
-          <p style={{ color: 'var(--text-dim)', fontSize: '0.6rem' }}>TP @ {((data?.config?.take_profit_threshold ?? 0.05) * 100).toFixed(0)}% PROFIT</p>
+          <p className="stat-value" style={{ fontSize: '1.2rem', paddingTop: '6px' }}>${data?.config?.trade_amount ?? 1.0} <span style={{fontSize: '0.8rem', color: 'var(--text-dim)'}}>USDC</span></p>
+          <p style={{ color: 'var(--text-dim)', fontSize: '0.65rem' }}>TP TARGET: {((data?.config?.take_profit_threshold ?? 0.05) * 100).toFixed(0)}% ROI</p>
         </div>
 
         <div className="card col-8">
@@ -175,26 +177,26 @@ const App: React.FC = () => {
 
         <div className="card col-4">
           <h2>SYSTEM LOGS</h2>
-          <div className="log-container" style={{ 
+          <div className="log-font" style={{ 
             height: '300px', 
-            background: '#0a0a0a', 
-            padding: '10px', 
-            borderRadius: '4px', 
+            background: 'rgba(0,0,0,0.4)', 
+            padding: '12px', 
+            borderRadius: '6px', 
             overflowY: 'auto',
-            fontFamily: 'monospace',
-            fontSize: '0.7rem'
+            fontSize: '0.75rem',
+            border: '1px solid rgba(255,255,255,0.05)'
           }}>
             {data?.logs.length === 0 ? (
               <div style={{ color: '#444' }}>Initializing process logs...</div>
             ) : (
               data?.logs.map((log, i) => (
                 <div key={i} style={{ 
-                  marginBottom: '4px', 
-                  color: log.includes('Error') ? '#ef4444' : 
-                         log.includes('Success') ? '#22c55e' : 
-                         log.includes('OPPORTUNITY') ? '#a855f7' : '#9ca3af',
-                  borderLeft: log.includes('OPPORTUNITY') ? '2px solid #a855f7' : 'none',
-                  paddingLeft: log.includes('OPPORTUNITY') ? '6px' : '0'
+                  marginBottom: '6px', 
+                  color: log.includes('Error') ? 'var(--danger)' : 
+                         log.includes('Success') ? 'var(--success)' : 
+                         log.includes('OPPORTUNITY') ? 'var(--secondary)' : 'var(--text-dim)',
+                  borderLeft: log.includes('OPPORTUNITY') ? '2px solid var(--secondary)' : 'none',
+                  paddingLeft: log.includes('OPPORTUNITY') ? '8px' : '0'
                 }}>
                   {log}
                 </div>
@@ -204,33 +206,47 @@ const App: React.FC = () => {
         </div>
 
         <div className="card col-12">
-          <h2>ACTIVE POSITIONS ({(data?.positions ?? []).length})</h2>
+          <h2>ACTIVE POSITIONS <span style={{fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-dim)'}}>({(data?.positions ?? []).length} items)</span></h2>
           <div className="table-container">
             <table>
               <thead>
                 <tr>
                   <th>ENTERED</th>
-                  <th>TARGET</th>
+                  <th>MARKET</th>
                   <th>SIDE</th>
                   <th>ENTRY</th>
-                  <th>SHARES</th>
-                  <th>STATUS</th>
+                  <th>CURRENT</th>
+                  <th>ROI / STATUS</th>
                 </tr>
               </thead>
               <tbody>
                 {(!data || !data.positions || data.positions.length === 0) ? (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-dim)' }}>No active positions being monitored.</td></tr>
+                  <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '2rem' }}>No active positions being monitored.</td></tr>
                 ) : (
-                  data?.positions.map((pos, i) => (
-                    <tr key={i}>
-                      <td>{new Date(pos.entry_timestamp).toLocaleTimeString()}</td>
-                      <td>{pos.title}</td>
-                      <td><span className="badge">{pos.outcome}</span></td>
-                      <td>${pos.entry_price.toFixed(3)}</td>
-                      <td>{pos.shares.toFixed(2)}</td>
-                      <td style={{ color: 'var(--success)' }}>MONITORING TP</td>
-                    </tr>
-                  ))
+                  data?.positions.map((pos, i) => {
+                    const currentPrice = pos.current_price || pos.entry_price;
+                    const roi = ((currentPrice / pos.entry_price) - 1) * 100;
+                    const isProfitable = roi > 0;
+                    const isLosing = roi < -5;
+
+                    return (
+                      <tr key={i}>
+                        <td style={{color: 'var(--text-dim)'}}>{new Date(pos.entry_timestamp).toLocaleTimeString()}</td>
+                        <td style={{fontWeight: 500}}>{pos.title}</td>
+                        <td><span className={`badge ${pos.outcome.toLowerCase() === 'yes' ? 'green' : (pos.outcome.toLowerCase() === 'no' ? 'red' : '')}`}>{pos.outcome}</span></td>
+                        <td>${pos.entry_price.toFixed(3)}</td>
+                        <td style={{color: isProfitable ? 'var(--success)' : (isLosing ? 'var(--danger)' : 'var(--text)')}}>${currentPrice.toFixed(3)}</td>
+                        <td>
+                          <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center'}}>
+                            <span style={{ fontWeight: 600, color: isProfitable ? 'var(--success)' : (isLosing ? 'var(--danger)' : 'var(--text)') }}>
+                              {roi > 0 ? '+' : ''}{roi.toFixed(1)}%
+                            </span>
+                            <span style={{fontSize: '0.65rem', color: 'var(--text-dim)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px'}}>MONITORING</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -259,8 +275,8 @@ const App: React.FC = () => {
                     <tr key={i}>
                       <td>{new Date(trade.timestamp).toLocaleString()}</td>
                       <td>{trade.title}</td>
-                      <td>{trade.outcome}</td>
-                      <td>${trade.price.toFixed(2)}</td>
+                      <td><span className={`badge ${trade.outcome.toLowerCase() === 'yes' ? 'green' : (trade.outcome.toLowerCase() === 'no' ? 'red' : '')}`}>{trade.outcome}</span></td>
+                      <td style={{fontWeight: 600}}>${trade.price.toFixed(2)}</td>
                       <td>{trade.size}</td>
                       <td>
                         <span style={{ 
