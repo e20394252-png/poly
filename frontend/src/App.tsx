@@ -52,6 +52,160 @@ interface BotStatus {
   };
 }
 
+const Terminal: React.FC<{ logs: string[] }> = ({ logs }) => {
+  const [filter, setFilter] = useState<'all' | 'info' | 'success' | 'error' | 'opportunity'>('all');
+  const [follow, setFollow] = useState(true);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (follow && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs, follow, filter]);
+
+  const filteredLogs = logs.filter(log => {
+    if (filter === 'all') return true;
+    if (filter === 'error') return log.toLowerCase().includes('error') || log.toLowerCase().includes('failed');
+    if (filter === 'success') return log.toLowerCase().includes('success');
+    if (filter === 'opportunity') return log.includes('OPPORTUNITY');
+    if (filter === 'info') return !log.toLowerCase().includes('error') && !log.toLowerCase().includes('failed') && !log.toLowerCase().includes('success') && !log.includes('OPPORTUNITY');
+    return true;
+  });
+
+  return (
+    <div className="terminal-container">
+      <div className="terminal-header">
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em' }}>SYSTEM_LOGS</span>
+          <div className="terminal-actions">
+            {(['all', 'info', 'success', 'error', 'opportunity'] as const).map(f => (
+              <button 
+                key={f} 
+                className={`filter-btn ${filter === f ? 'active' : ''}`}
+                onClick={() => setFilter(f)}
+              >
+                {f.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button 
+          className={`filter-btn ${follow ? 'active' : ''}`}
+          onClick={() => setFollow(!follow)}
+          style={{ marginLeft: 'auto' }}
+        >
+          {follow ? 'FOLLOW ON' : 'FOLLOW OFF'}
+        </button>
+      </div>
+      <div className="terminal-body log-font" ref={scrollRef}>
+        {filteredLogs.length === 0 ? (
+          <div style={{ color: '#444' }}>No logs matching filter...</div>
+        ) : (
+          filteredLogs.map((log, i) => {
+            const timeMatch = log.match(/^\[(.*?)\]/);
+            const timestamp = timeMatch ? timeMatch[1] : '';
+            const content = timeMatch ? log.replace(timeMatch[0], '').trim() : log;
+            
+            let levelClass = 'log-info';
+            if (log.includes('Error') || log.includes('Failed') || log.includes('FAILED')) levelClass = 'log-error';
+            else if (log.includes('Success') || log.includes('SUCCESS')) levelClass = 'log-success';
+            else if (log.includes('OPPORTUNITY')) levelClass = 'log-opportunity';
+
+            return (
+              <div key={i} className={`log-line ${levelClass}`}>
+                <span className="log-time">[{timestamp}]</span>
+                <span className="log-content">{content}</span>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+};
+
+const TradeHistory: React.FC<{ trades: Trade[] }> = ({ trades }) => {
+  const groupTrades = (trades: Trade[]) => {
+    if (trades.length === 0) return [];
+    
+    const grouped: (Trade & { count: number })[] = [];
+    let currentGroup: (Trade & { count: number }) | null = null;
+
+    trades.forEach(trade => {
+      // Group if: same market title, same outcome, both are failed
+      const canGroup = currentGroup && 
+                       currentGroup.title === trade.title && 
+                       currentGroup.outcome === trade.outcome && 
+                       currentGroup.status === 'failed' && 
+                       trade.status === 'failed';
+
+      if (canGroup && currentGroup) {
+        currentGroup.count++;
+        // Update timestamp to the latest one
+        currentGroup.timestamp = trade.timestamp;
+      } else {
+        currentGroup = { ...trade, count: 1 };
+        grouped.push(currentGroup);
+      }
+    });
+
+    return grouped;
+  };
+
+  const groupedTrades = groupTrades(trades);
+
+  return (
+    <div className="table-container" style={{ maxHeight: '500px', overflowY: 'auto' }}>
+      <table>
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Target</th>
+            <th>Side</th>
+            <th>Price</th>
+            <th>Size</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groupedTrades.length === 0 ? (
+            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '2rem' }}>No trades recorded in current session.</td></tr>
+          ) : (
+            groupedTrades.map((trade, i) => (
+              <tr key={i} className={trade.status === 'failed' ? (trade.count > 1 ? 'trade-row-grouped' : '') : 'trade-row-success'}>
+                <td>{new Date(trade.timestamp).toLocaleString()}</td>
+                <td>
+                  {trade.title}
+                  {trade.count > 1 && <span className="badge-count">x{trade.count} REPEATS</span>}
+                </td>
+                <td><span className={`badge ${trade.outcome.toLowerCase() === 'yes' ? 'green' : (trade.outcome.toLowerCase() === 'no' ? 'red' : '')}`}>{trade.outcome}</span></td>
+                <td style={{fontWeight: 600}}>${trade.price.toFixed(2)}</td>
+                <td>{trade.size}</td>
+                <td>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ 
+                      color: trade.status === 'success' ? 'var(--success)' : 'var(--danger)',
+                      fontSize: '0.75rem',
+                      fontWeight: 700
+                    }}>
+                      {trade.status.toUpperCase()}
+                    </span>
+                    {trade.error && trade.status === 'failed' && (
+                      <span style={{ fontSize: '0.6rem', color: 'var(--text-dim)', maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={trade.error}>
+                        {trade.error}
+                      </span>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [data, setData] = useState<BotStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -176,33 +330,7 @@ const App: React.FC = () => {
         </div>
 
         <div className="card col-4">
-          <h2>SYSTEM LOGS</h2>
-          <div className="log-font" style={{ 
-            height: '300px', 
-            background: 'rgba(0,0,0,0.4)', 
-            padding: '12px', 
-            borderRadius: '6px', 
-            overflowY: 'auto',
-            fontSize: '0.75rem',
-            border: '1px solid rgba(255,255,255,0.05)'
-          }}>
-            {data?.logs.length === 0 ? (
-              <div style={{ color: '#444' }}>Initializing process logs...</div>
-            ) : (
-              data?.logs.map((log, i) => (
-                <div key={i} style={{ 
-                  marginBottom: '6px', 
-                  color: log.includes('Error') ? 'var(--danger)' : 
-                         log.includes('Success') ? 'var(--success)' : 
-                         log.includes('OPPORTUNITY') ? 'var(--secondary)' : 'var(--text-dim)',
-                  borderLeft: log.includes('OPPORTUNITY') ? '2px solid var(--secondary)' : 'none',
-                  paddingLeft: log.includes('OPPORTUNITY') ? '8px' : '0'
-                }}>
-                  {log}
-                </div>
-              ))
-            )}
-          </div>
+          <Terminal logs={data?.logs || []} />
         </div>
 
         <div className="card col-12">
@@ -255,44 +383,7 @@ const App: React.FC = () => {
 
         <div className="card col-12">
           <h2>TRADE HISTORY</h2>
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Target</th>
-                  <th>Side</th>
-                  <th>Price</th>
-                  <th>Size</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.recent_trades.length === 0 ? (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '2rem' }}>No trades recorded in current session.</td></tr>
-                ) : (
-                  data?.recent_trades.map((trade, i) => (
-                    <tr key={i}>
-                      <td>{new Date(trade.timestamp).toLocaleString()}</td>
-                      <td>{trade.title}</td>
-                      <td><span className={`badge ${trade.outcome.toLowerCase() === 'yes' ? 'green' : (trade.outcome.toLowerCase() === 'no' ? 'red' : '')}`}>{trade.outcome}</span></td>
-                      <td style={{fontWeight: 600}}>${trade.price.toFixed(2)}</td>
-                      <td>{trade.size}</td>
-                      <td>
-                        <span style={{ 
-                          color: trade.status === 'success' ? 'var(--success)' : 'var(--danger)',
-                          fontSize: '0.75rem',
-                          fontWeight: 700
-                        }}>
-                          {trade.status.toUpperCase()}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <TradeHistory trades={data?.recent_trades || []} />
         </div>
       </div>
     </div>
