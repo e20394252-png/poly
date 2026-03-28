@@ -145,7 +145,10 @@ class BotState:
         self.config = {
             "trade_amount": TRADE_AMOUNT_USDC,
             "poll_interval": POLL_INTERVAL_SECONDS,
-            "take_profit_threshold": 0.05
+            "take_profit_threshold": 0.04,   # 4% TP for active scalping
+            "stop_loss_threshold": -0.15,     # -15% SL to limit losses
+            "price_min": 0.20,                # Volatility zone floor
+            "price_max": 0.80,                # Volatility zone ceiling
         }
         self.stop_event = threading.Event()
         self.logs = [] # NEW: Buffer for system logs
@@ -427,9 +430,9 @@ def filter_short_term_opportunities(events: List[dict]) -> List[dict]:
     opportunities = []
     now = datetime.now(timezone.utc)
     
-    # Widened window: events closing in next 1m to 7 days
+    # STRATEGY: Volatility Scalping — scan broad 30-day window for liquid markets
     min_time = now + timedelta(minutes=1)
-    max_time = now + timedelta(days=7) 
+    max_time = now + timedelta(days=30)
     
     for event in events:
         try:
@@ -540,10 +543,13 @@ def analyze_and_trade(opportunities, placed_trades):
                     "token_id": token_id
                 })
                     
-                # We are looking for "high probability" outcomes (expanded for scalping)
-                if price_f >= 0.85 and price_f <= 0.99:
+                # STRATEGY: Volatility Scalping — buy in the 20%-80% range
+                # These markets have highest price swings giving us room to profit
+                price_min = global_state.config.get('price_min', 0.20)
+                price_max = global_state.config.get('price_max', 0.80)
+                if price_f >= price_min and price_f <= price_max:
                     opportunities_found += 1
-                    print(f"[{datetime.now().isoformat()}]      [!] HIGH PROBABILITY OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
+                    print(f"[{datetime.now().isoformat()}]      [!] VOLATILITY SCALP OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
                     
                     if client is None:
                         global_state.add_log(f"DEBUG: Cannot place order for '{outcome}' - CLOB Client is not initialized.")
@@ -626,8 +632,8 @@ def analyze_and_trade(opportunities, placed_trades):
                         })
                             
                 else:
-                    global_state.add_log(f"DEBUG: Outcome '{outcome}' for market '{question}': price ${price_f:.2f} is not within [0.01, 0.99] range.")
-                    print(f"[{datetime.now().isoformat()}]      - Outcome '{outcome}': ${price_f:.2f} (Not high probability)")
+                    global_state.add_log(f"DEBUG: Outcome '{outcome}' for market '{question}': price ${price_f:.2f} outside scalp range [{price_min:.2f}, {price_max:.2f}].")
+                    print(f"[{datetime.now().isoformat()}]      - Outcome '{outcome}': ${price_f:.2f} (Outside volatility zone)")
     
     print(f"[{datetime.now().isoformat()}] Analysis Complete: Scanned {total_markets_scanned} markets, found {opportunities_found} opportunities.")
     print(f"=====================================")
@@ -705,11 +711,15 @@ def update_balance_and_positions():
                 if response.status_code == 200:
                     any_positions_fetch_succeeded = True
                     data = response.json()
+                    # Build lookup of existing timestamps to preserve them
+                    existing_timestamps = {p['token_id']: p['entry_timestamp'] for p in global_state.positions}
                     for pos in data:
                         size = float(pos.get('size', 0))
                         token_id = pos.get('asset')
                         if size > 0 and token_id and token_id not in found_token_ids:
                             print(f"Found position: {pos.get('title')} ({size} shares)")
+                            # FIX: Preserve original entry_timestamp — don't let it shift every poll
+                            original_ts = existing_timestamps.get(token_id, datetime.now().isoformat())
                             new_positions.append({
                                 "token_id": token_id,
                                 "market_id": pos.get('conditionId'),
@@ -719,7 +729,7 @@ def update_balance_and_positions():
                                 "shares": size,
                                 "current_price": float(pos.get('curPrice', 0.5)),
                                 "pnl_percent": float(pos.get('percentPnl', 0)),
-                                "entry_timestamp": datetime.now().isoformat()
+                                "entry_timestamp": original_ts
                             })
                             found_token_ids.add(token_id)
             except Exception as e:
@@ -800,15 +810,16 @@ def monitor_take_profit():
                 traceback.print_exc()
                 continue 
             
-            # 2. Check profit threshold or near-expiry exit
-            # If we are in > 100% profit (like Shanghai), we should definitely take it
-            # Also if current_price is near 1.0 (0.98+), it's a "done deal", just exit
+            # 2. Check profit threshold, stop-loss, or near-expiry exit
+            tp = global_state.config.get('take_profit_threshold', 0.04)
+            sl = global_state.config.get('stop_loss_threshold', -0.15)
             is_huge_profit = current_price > pos['entry_price'] * 2.0
             is_near_max = current_price >= 0.98
-            is_target_hit = current_price > pos['entry_price'] * (1 + global_state.config['take_profit_threshold'])
+            is_target_hit = current_price > pos['entry_price'] * (1 + tp)
+            is_stop_loss = pos['entry_price'] > 0 and (current_price - pos['entry_price']) / pos['entry_price'] < sl
 
-            if is_huge_profit or is_near_max or is_target_hit:
-                reason = "HUGE PROFIT" if is_huge_profit else ("MAX REACHED" if is_near_max else "TARGET HIT")
+            if is_huge_profit or is_near_max or is_target_hit or is_stop_loss:
+                reason = "STOP LOSS" if is_stop_loss else ("HUGE PROFIT" if is_huge_profit else ("MAX REACHED" if is_near_max else "TARGET HIT"))
                 print(f" [!] TAKE PROFIT TRIGGERED ({reason}) for {pos['title']} ({pos['outcome']})")
                 print(f"     Entry: {pos['entry_price']} | Current/Bid: {current_price} | ROI: {((current_price/pos['entry_price'])-1)*100:.1f}%")
                 
@@ -870,7 +881,8 @@ def run_bot_loop():
     global_state.add_log("Bot main loop started.")
     print(f"Trade Size: ${TRADE_AMOUNT_USDC} USDC | Poll Interval: {POLL_INTERVAL_SECONDS}s\n")
     
-    placed_trades = set()
+    # Seed placed_trades from current positions so we don't double-buy on restart
+    placed_trades = set(pos['token_id'] for pos in global_state.positions)
     
     global_state.status = "running"
     global_state.stop_event.clear()
