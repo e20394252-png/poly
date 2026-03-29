@@ -681,34 +681,21 @@ def update_balance_and_positions():
         # Use RPC to check the actual wallet holding funds
         # NOTE: RPC calls go DIRECTLY (no proxy) — Polygon RPC is not geo-blocked
         if USE_PROXY_WALLET and global_state.proxy_address:
-            # Check proxy wallet balance via RPC first (regular ERC20)
             try:
                 rpc_url = RPC_URL or "https://1rpc.io/matic"
                 proxies = {"http": None, "https": None}
-                global_state.balance = _get_rpc_balance_internal(global_state.proxy_address, rpc_url, proxies)
-                print(f"[{datetime.now().isoformat()}] Balance (proxy wallet): ${global_state.balance:.2f}")
+                
+                new_balance = _get_rpc_balance_internal(global_state.proxy_address, rpc_url, proxies)
+                
+                # Only update if we didn't get an explicit 0 from a crashed RPC
+                # We know the user has some liquid cash, even if it's pennies.
+                if new_balance > 0 or global_state.balance == 0:
+                    global_state.balance = new_balance
+                    
+                print(f"[{datetime.now().isoformat()}] Balance (proxy wallet): ${global_state.balance:.2f} (Liquid USDC)")
 
-                # If RPC balance is 0, try falling back to Data API
-                if global_state.balance == 0:
-                    try:
-                        url = f"https://data-api.polymarket.com/value?user={global_state.proxy_address}"
-                        response = requests.get(url, timeout=30)
-                        if response.status_code == 200:
-                            data = response.json()
-                            portfolio_value = 0
-                            if isinstance(data, list) and len(data) > 0:
-                                portfolio_value = float(data[-1].get('value', 0)) if isinstance(data[-1], dict) else 0
-                            elif isinstance(data, dict):
-                                portfolio_value = float(data.get('value', 0))
-                            
-                            global_state.balance = portfolio_value
-                            print(f"[{datetime.now().isoformat()}] Balance from Data API (fallback): ${global_state.balance:.2f}")
-                    except Exception as e2:
-                        print(f"[{datetime.now().isoformat()}] Data API fallback failed: {e2}")
             except Exception as e:
                 print(f"[{datetime.now().isoformat()}] Error fetching proxy wallet balance: {e}")
-
-
 
         else:
             # EOA mode: use RPC
