@@ -826,7 +826,7 @@ def monitor_take_profit():
             max_hold_minutes = global_state.config.get('max_hold_time_minutes', 30)
             
             # Calculate time held
-            entry_time = datetime.fromisoformat(pos['entry_time'].replace('Z', '+00:00'))
+            entry_time = datetime.fromisoformat(pos['entry_timestamp'].replace('Z', '+00:00'))
             hold_time_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
             
             is_huge_profit = current_price > pos['entry_price'] * 2.0
@@ -847,8 +847,9 @@ def monitor_take_profit():
                 else:
                     reason = "TARGET HIT"
                     
-                print(f" [!] TAKE PROFIT TRIGGERED ({reason}) for {pos['title']} ({pos['outcome']})")
-                print(f"     Entry: {pos['entry_price']} | Current/Bid: {current_price} | ROI: {((current_price/pos['entry_price'])-1)*100:.1f}% | Hold: {hold_time_minutes:.1f}min")
+                msg = f" [!] TAKE PROFIT TRIGGERED ({reason}) for {pos['title']} ({pos['outcome']}) - Entry: {pos['entry_price']} | Current: {current_price} | ROI: {((current_price/pos['entry_price'])-1)*100:.1f}%"
+                print(msg)
+                global_state.add_log(msg)
                 
                 # 3. Execute Sell Order
                 try:
@@ -897,7 +898,9 @@ def monitor_take_profit():
 
             remaining_positions.append(pos)
         except Exception as e:
-            print(f"Error in TP monitor: {e}")
+            error_msg = f"Error in TP monitor for {pos.get('title')}: {e}"
+            print(error_msg)
+            global_state.add_log(error_msg)
             remaining_positions.append(pos)
             
     global_state.positions = remaining_positions
