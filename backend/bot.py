@@ -157,7 +157,7 @@ class BotState:
             "stop_loss_threshold": -0.08,     # -8% SL for strict risk control
             "price_min": 0.70,                # High probability zone floor
             "price_max": 0.89,                # High probability zone ceiling
-            "max_positions": 10,               # Limit concurrent positions
+            "max_positions": 20,               # Limit concurrent positions
             "max_hold_time_minutes": 30,       # Max hold time for positions
         }
         self.stop_event = threading.Event()
@@ -562,7 +562,7 @@ def analyze_and_trade(opportunities, placed_trades):
                     opportunities_found += 1
                     
                     # Check position limit
-                    max_positions = global_state.config.get('max_positions', 10)
+                    max_positions = global_state.config.get('max_positions', 20)
                     if len(global_state.positions) >= max_positions:
                         if opportunities_found == 1: # Only log this once per scan cycle
                             global_state.add_log(f"DEBUG: Max positions reached ({max_positions}). Skipping new trades.")
