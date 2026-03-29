@@ -813,6 +813,9 @@ def monitor_take_profit():
                     # If we have a real bid, we use it as the "real" price we can get
                     current_price = best_bid
                 
+                # Update the stored position price so the UI dashboard reflects the REAL sellable price, not a fake midpoint
+                pos['current_price'] = current_price
+                
                 print(f"     -> Prices for {pos['title']}: Bid: {best_bid} | Mid/Last: {current_price}")
             except Exception as e:
                 print(f"     -> Error fetching price for {pos['title']}: {e}")
