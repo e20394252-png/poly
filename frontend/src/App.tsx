@@ -49,6 +49,9 @@ interface BotStatus {
     trade_amount: number;
     poll_interval: number;
     take_profit_threshold: number;
+    stop_loss_threshold: number;
+    price_min: number;
+    price_max: number;
   };
 }
 
@@ -293,7 +296,11 @@ const App: React.FC = () => {
         <div className="card col-3">
           <p className="stat-label">TRADE SIZE</p>
           <p className="stat-value" style={{ fontSize: '1.2rem', paddingTop: '6px' }}>${data?.config?.trade_amount ?? 1.0} <span style={{fontSize: '0.8rem', color: 'var(--text-dim)'}}>USDC</span></p>
-          <p style={{ color: 'var(--text-dim)', fontSize: '0.65rem' }}>TP TARGET: {((data?.config?.take_profit_threshold ?? 0.05) * 100).toFixed(0)}% ROI</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
+            <p style={{ color: 'var(--success)', fontSize: '0.75rem', fontWeight: 600 }}>[TP] TAKE PROFIT: +{((data?.config?.take_profit_threshold ?? 0.03) * 100).toFixed(0)}%</p>
+            <p style={{ color: 'var(--danger)', fontSize: '0.75rem', fontWeight: 600 }}>[SL] STOP LOSS: {((data?.config?.stop_loss_threshold ?? -0.08) * 100).toFixed(0)}%</p>
+            <p style={{ color: 'var(--primary)', fontSize: '0.65rem', fontWeight: 500, opacity: 0.8, marginTop: '2px' }}>SCALP RANGE: {(data?.config?.price_min ?? 0.70) * 100}% - {(data?.config?.price_max ?? 0.89) * 100}%</p>
+          </div>
         </div>
 
         <div className="card col-8">
