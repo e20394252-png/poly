@@ -145,10 +145,12 @@ class BotState:
         self.config = {
             "trade_amount": TRADE_AMOUNT_USDC,
             "poll_interval": POLL_INTERVAL_SECONDS,
-            "take_profit_threshold": 0.04,   # 4% TP for active scalping
-            "stop_loss_threshold": -0.15,     # -15% SL to limit losses
-            "price_min": 0.20,                # Volatility zone floor
-            "price_max": 0.80,                # Volatility zone ceiling
+            "take_profit_threshold": 0.025,   # 2.5% TP for high-frequency scalping
+            "stop_loss_threshold": -0.08,     # -8% SL for strict risk control
+            "price_min": 0.70,                # High probability zone floor
+            "price_max": 0.89,                # High probability zone ceiling
+            "max_positions": 10,               # Limit concurrent positions
+            "max_hold_time_minutes": 30,       # Max hold time for positions
         }
         self.stop_event = threading.Event()
         self.logs = [] # NEW: Buffer for system logs
@@ -543,24 +545,35 @@ def analyze_and_trade(opportunities, placed_trades):
                     "token_id": token_id
                 })
                     
-                # STRATEGY: Volatility Scalping — buy in the 20%-80% range
-                # These markets have highest price swings giving us room to profit
-                price_min = global_state.config.get('price_min', 0.20)
-                price_max = global_state.config.get('price_max', 0.80)
+                # STRATEGY: High-Frequency Momentum Scalping — buy in the 70%-89% range
+                # High probability but still room for small profitable movements
+                price_min = global_state.config.get('price_min', 0.70)
+                price_max = global_state.config.get('price_max', 0.89)
+                
+                # Check position limit
+                max_positions = global_state.config.get('max_positions', 10)
+                if len(global_state.positions) >= max_positions:
+                    global_state.add_log(f"DEBUG: Max positions reached ({max_positions}). Skipping new trades.")
+                    continue
+                
                 if price_f >= price_min and price_f <= price_max:
                     opportunities_found += 1
-                    print(f"[{datetime.now().isoformat()}]      [!] VOLATILITY SCALP OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
+                    print(f"[{datetime.now().isoformat()}]      [!] HIGH-FREQUENCY SCALP OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
                     
                     if client is None:
                         global_state.add_log(f"DEBUG: Cannot place order for '{outcome}' - CLOB Client is not initialized.")
                         print(f"[{datetime.now().isoformat()}]          -> Cannot place order: CLOB Client is not initialized.")
                         continue
                         
-                    # Calculate shares based on stake in USDC.
+                    # Calculate shares based on stake in USDC with position sizing adjustment
                     # `py-clob-client` expects `size` in conditional token units (shares), not USDC.
                     min_size = float(market.get("orderMinSize", 1) or 1)
-                    # SDK rounds size to 2 decimals internally; we mirror that.
-                    shares = round(TRADE_AMOUNT_USDC / price_f, 2) if price_f > 0 else 0.0
+                    
+                    # Dynamic position sizing based on confidence (higher price = smaller position)
+                    confidence_multiplier = 1.0 - (price_f - price_min) / (price_max - price_min)
+                    adjusted_trade_amount = TRADE_AMOUNT_USDC * (0.7 + 0.3 * confidence_multiplier)
+                    
+                    shares = round(adjusted_trade_amount / price_f, 2) if price_f > 0 else 0.0
                     if shares < min_size:
                         # If stake is too small for the market, bump to minimum size.
                         shares = min_size
@@ -568,7 +581,7 @@ def analyze_and_trade(opportunities, placed_trades):
                         
                     print(
                         f"[{datetime.now().isoformat()}]          -> Attempting to place order: BUY {shares} shares of '{outcome}' "
-                        f"at ${price_f:.3f} (est. cost ${cost_est:.2f})"
+                        f"at ${price_f:.3f} (est. cost ${cost_est:.2f}, confidence: {confidence_multiplier:.2f})"
                     )
                     
                     try:
@@ -810,18 +823,35 @@ def monitor_take_profit():
                 traceback.print_exc()
                 continue 
             
-            # 2. Check profit threshold, stop-loss, or near-expiry exit
-            tp = global_state.config.get('take_profit_threshold', 0.04)
-            sl = global_state.config.get('stop_loss_threshold', -0.15)
+            # 2. Check profit threshold, stop-loss, max hold time, or near-expiry exit
+            tp = global_state.config.get('take_profit_threshold', 0.025)
+            sl = global_state.config.get('stop_loss_threshold', -0.08)
+            max_hold_minutes = global_state.config.get('max_hold_time_minutes', 30)
+            
+            # Calculate time held
+            entry_time = datetime.fromisoformat(pos['entry_time'].replace('Z', '+00:00'))
+            hold_time_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
+            
             is_huge_profit = current_price > pos['entry_price'] * 2.0
             is_near_max = current_price >= 0.98
             is_target_hit = current_price > pos['entry_price'] * (1 + tp)
             is_stop_loss = pos['entry_price'] > 0 and (current_price - pos['entry_price']) / pos['entry_price'] < sl
+            is_max_hold_time = hold_time_minutes > max_hold_minutes
 
-            if is_huge_profit or is_near_max or is_target_hit or is_stop_loss:
-                reason = "STOP LOSS" if is_stop_loss else ("HUGE PROFIT" if is_huge_profit else ("MAX REACHED" if is_near_max else "TARGET HIT"))
+            if is_huge_profit or is_near_max or is_target_hit or is_stop_loss or is_max_hold_time:
+                if is_max_hold_time:
+                    reason = f"MAX HOLD TIME ({hold_time_minutes:.1f} min)"
+                elif is_stop_loss:
+                    reason = "STOP LOSS"
+                elif is_huge_profit:
+                    reason = "HUGE PROFIT"
+                elif is_near_max:
+                    reason = "MAX REACHED"
+                else:
+                    reason = "TARGET HIT"
+                    
                 print(f" [!] TAKE PROFIT TRIGGERED ({reason}) for {pos['title']} ({pos['outcome']})")
-                print(f"     Entry: {pos['entry_price']} | Current/Bid: {current_price} | ROI: {((current_price/pos['entry_price'])-1)*100:.1f}%")
+                print(f"     Entry: {pos['entry_price']} | Current/Bid: {current_price} | ROI: {((current_price/pos['entry_price'])-1)*100:.1f}% | Hold: {hold_time_minutes:.1f}min")
                 
                 # 3. Execute Sell Order
                 try:
