@@ -43,11 +43,19 @@ def _get_rpc_balance_internal(addr: str, rpc_url: str, proxies: dict = None) -> 
             data = "0x70a08231" + addr[2:].zfill(64)
             payload = {"jsonrpc": "2.0", "method": "eth_call", "params": [{"to": token, "data": data}, "latest"], "id": 1}
             print(f"STEP: _get_rpc_balance_internal: Fetching balance for token={token}, payload={payload}", flush=True)
-            response = requests.post(rpc_url, json=payload, proxies=proxies, timeout=10).json()
-            print(f"STEP: _get_rpc_balance_internal: Response for token={token}, response={response}", flush=True)
-
-            if 'result' in response:
-                total_bal += int(response['result'], 16) / 1e6
+            response = requests.post(rpc_url, json=payload, proxies=proxies, timeout=10)
+            
+            if response.status_code == 200:
+                try:
+                    resp_json = response.json()
+                    print(f"STEP: _get_rpc_balance_internal: Response for token={token}, JSON={resp_json}", flush=True)
+                    if 'result' in resp_json and resp_json['result'] != '0x':
+                        total_bal += int(resp_json['result'], 16) / 1e6
+                except ValueError as json_err:
+                    print(f"ERROR in _get_rpc_balance_internal (JSON decode) for {token}: {json_err} - raw response: {response.text[:200]}", flush=True)
+            else:
+                print(f"STEP: _get_rpc_balance_internal: Non-200 response for token={token}, status={response.status_code}", flush=True)
+                
         except Exception as e:
             print(f"ERROR in _get_rpc_balance_internal for token {token}: {e}", flush=True)
     print(f"STEP: _get_rpc_balance_internal: Total balance for {addr} = {total_bal}", flush=True)
@@ -120,7 +128,7 @@ else:
 
 
 # Settings
-TRADE_AMOUNT_USDC = float(os.getenv("TRADE_AMOUNT_USDC", 5.0))
+TRADE_AMOUNT_USDC = float(os.getenv("TRADE_AMOUNT_USDC", 1.0))
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", 15))
 
 GAMMA_API_URL = "https://gamma-api.polymarket.com"
@@ -409,9 +417,9 @@ def fetch_active_events():
     global_state.current_action = "Fetching Active Markets from Polymarket..."
     try:
         all_events = []
-        # Sort by endDate DESC to get the soonest ones first
-        url = f"{GAMMA_API_URL}/events?active=true&closed=false&order=endDate&ascending=true&limit=1000"
-        global_state.add_log(f"Fetching active events from Gamma API (Sorted by soonest)...")
+        # Sort by volume DESC to get the most liquid (and active) ones first
+        url = f"{GAMMA_API_URL}/events?active=true&closed=false&order=volume&ascending=false&limit=1000"
+        global_state.add_log(f"Fetching active events from Gamma API (Sorted by volume)...")
         
         # We fetch in one big chunk of 1000 now that we have sorting
         response = requests.get(url, timeout=30)
@@ -432,9 +440,9 @@ def filter_short_term_opportunities(events: List[dict]) -> List[dict]:
     opportunities = []
     now = datetime.now(timezone.utc)
     
-    # STRATEGY: Volatility Scalping — scan broad 30-day window for liquid markets
+    # STRATEGY: Volatility Scalping — scan 3-day window for immediate/short-lived markets
     min_time = now + timedelta(minutes=1)
-    max_time = now + timedelta(days=30)
+    max_time = now + timedelta(days=3)
     
     for event in events:
         try:
