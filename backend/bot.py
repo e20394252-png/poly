@@ -544,28 +544,30 @@ def analyze_and_trade(opportunities, placed_trades):
                 if price_f > max_price:
                     price_f = max_price
 
-                # Add to current opportunities for dashboard
-                global_state.opportunities.append({
-                    "event_title": event.get('title'),
-                    "market_question": question,
-                    "outcome": outcome,
-                    "price": price_f,
-                    "token_id": token_id
-                })
-                    
                 # STRATEGY: High-Frequency Momentum Scalping — buy in the 70%-89% range
                 # High probability but still room for small profitable movements
                 price_min = global_state.config.get('price_min', 0.70)
                 price_max = global_state.config.get('price_max', 0.89)
                 
-                # Check position limit
-                max_positions = global_state.config.get('max_positions', 10)
-                if len(global_state.positions) >= max_positions:
-                    global_state.add_log(f"DEBUG: Max positions reached ({max_positions}). Skipping new trades.")
-                    continue
-                
                 if price_f >= price_min and price_f <= price_max:
+                    # Add to current opportunities for dashboard
+                    global_state.opportunities.append({
+                        "event_title": event.get('title'),
+                        "market_question": question,
+                        "outcome": outcome,
+                        "price": price_f,
+                        "token_id": token_id
+                    })
+                    
                     opportunities_found += 1
+                    
+                    # Check position limit
+                    max_positions = global_state.config.get('max_positions', 10)
+                    if len(global_state.positions) >= max_positions:
+                        if opportunities_found == 1: # Only log this once per scan cycle
+                            global_state.add_log(f"DEBUG: Max positions reached ({max_positions}). Skipping new trades.")
+                        continue
+                        
                     print(f"[{datetime.now().isoformat()}]      [!] HIGH-FREQUENCY SCALP OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
                     
                     if client is None:
