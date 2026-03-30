@@ -272,6 +272,8 @@ const App: React.FC = () => {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: '#8B5CF6' }}>Initializing Systems...</div>;
   }
 
+  const totalPositionsValue = (data?.positions ?? []).reduce((acc, pos) => acc + ((pos.current_price || pos.entry_price) * pos.shares), 0);
+
   return (
     <div className="dashboard">
       <header>
@@ -362,7 +364,12 @@ const App: React.FC = () => {
 
         <div className="card col-12">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h2 style={{ marginBottom: 0 }}>ACTIVE POSITIONS <span style={{fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-dim)'}}>({(data?.positions ?? []).length} items)</span></h2>
+            <h2 style={{ marginBottom: 0 }}>
+              ACTIVE POSITIONS 
+              <span style={{fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-dim)', marginLeft: '8px'}}>
+                ({(data?.positions ?? []).length} items | Total Value: <span style={{color: 'var(--primary)', fontWeight: 600}}>${totalPositionsValue.toFixed(2)}</span>)
+              </span>
+            </h2>
             <button className="btn btn-secondary" style={{ backgroundColor: '#EF4444', borderColor: '#DC2626', color: 'white', padding: '0.4rem 1rem', fontSize: '0.8rem' }} onClick={() => handleSellPosition(null)}>
               SELL ALL POSITIONS
             </button>
