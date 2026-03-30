@@ -153,8 +153,9 @@ class BotState:
         self.config = {
             "trade_amount": TRADE_AMOUNT_USDC,
             "poll_interval": POLL_INTERVAL_SECONDS,
-            "take_profit_threshold": 0.025,   # 2.5% TP for high-frequency scalping
-            "stop_loss_threshold": -0.08,     # -8% SL for strict risk control
+            "take_profit_threshold": 0.05,    # 5% TP
+            "stop_loss_threshold": -0.25,     # -25% SL to weather the spread/noise
+            "max_spread": 0.03,               # Max 3 cents spread allowed
             "price_min": 0.70,                # High probability zone floor
             "price_max": 0.89,                # High probability zone ceiling
             "max_positions": 20,               # Limit concurrent positions
@@ -571,24 +572,51 @@ def analyze_and_trade(opportunities, placed_trades):
                         
                     print(f"[{datetime.now().isoformat()}]      [!] HIGH-FREQUENCY SCALP OPPORTUNITY: '{outcome}' @ ${price_f:.2f}")
                     
+                    # Check Maker logic and Spread
                     if client is None:
                         global_state.add_log(f"DEBUG: Cannot place order for '{outcome}' - CLOB Client is not initialized.")
                         print(f"[{datetime.now().isoformat()}]          -> Cannot place order: CLOB Client is not initialized.")
                         continue
                         
-                    # Calculate shares based on stake in USDC with position sizing adjustment
-                    # `py-clob-client` expects `size` in conditional token units (shares), not USDC.
-                    min_size = float(market.get("orderMinSize", 1) or 1)
-                    
-                    # Dynamic position sizing based on confidence (higher price = smaller position)
-                    confidence_multiplier = 1.0 - (price_f - price_min) / (price_max - price_min)
+                    try:
+                        ob = client.get_order_book(token_id)
+                        best_bid = 0.0
+                        best_ask = 1.0
+                        if hasattr(ob, 'bids') and ob.bids:
+                            best_bid = float(ob.bids[0].price)
+                        elif isinstance(ob, dict) and 'bids' in ob and ob['bids']:
+                            first_bid = ob['bids'][0]
+                            best_bid = float(first_bid.price if hasattr(first_bid, 'price') else first_bid.get('price', 0))
+                            
+                        if hasattr(ob, 'asks') and ob.asks:
+                            best_ask = float(ob.asks[0].price)
+                        elif isinstance(ob, dict) and 'asks' in ob and ob['asks']:
+                            first_ask = ob['asks'][0]
+                            best_ask = float(first_ask.price if hasattr(first_ask, 'price') else first_ask.get('price', 1.0))
+                            
+                        spread = best_ask - best_bid
+                        max_spread = global_state.config.get('max_spread', 0.03)
+                        
+                        if best_bid <= 0 or spread > max_spread:
+                            print(f"[{datetime.now().isoformat()}]          -> Spread too high or no buyers (Bid: {best_bid:.3f}, Ask: {best_ask:.3f}, Spread: {spread:.3f}). Skipping.")
+                            continue
+                            
+                        # Maker Strategy: Target the best bid to avoid paying the spread.
+                        target_buy_price = best_bid
+                        
+                    except Exception as ob_err:
+                        print(f"[{datetime.now().isoformat()}]          -> Error fetching orderbook for spread check: {ob_err}")
+                        continue
+                        
+                    # Dynamic position sizing based on confidence using our new Maker price
+                    confidence_multiplier = 1.0 - (target_buy_price - price_min) / (price_max - price_min)
                     adjusted_trade_amount = TRADE_AMOUNT_USDC * (0.7 + 0.3 * confidence_multiplier)
                     
-                    shares = round(adjusted_trade_amount / price_f, 2) if price_f > 0 else 0.0
+                    shares = round(adjusted_trade_amount / target_buy_price, 2) if target_buy_price > 0 else 0.0
                     if shares < min_size:
                         # If stake is too small for the market, bump to minimum size.
                         shares = min_size
-                    cost_est = shares * price_f
+                    cost_est = shares * target_buy_price
                         
                     max_allowed_cost = max(TRADE_AMOUNT_USDC * 1.5, 5.0) # Flex to $5 for min_size limits
                     
@@ -603,8 +631,8 @@ def analyze_and_trade(opportunities, placed_trades):
                         continue
 
                     print(
-                        f"[{datetime.now().isoformat()}]          -> Attempting to place order: BUY {shares} shares of '{outcome}' "
-                        f"at ${price_f:.3f} (est. cost ${cost_est:.2f}, confidence: {confidence_multiplier:.2f})"
+                        f"[{datetime.now().isoformat()}]          -> Attempting to place Maker BUY {shares} shares of '{outcome}' "
+                        f"at ${target_buy_price:.3f} (est. cost ${cost_est:.2f}, confidence: {confidence_multiplier:.2f})"
                     )
                     
                     try:
@@ -616,11 +644,11 @@ def analyze_and_trade(opportunities, placed_trades):
                         except Exception as allow_err:
                             print(f"[{datetime.now().isoformat()}]          -> Warning: collateral allowance update failed: {allow_err}")
 
-                        # Place Limit Order
+                        # Place Maker Limit BUY Order
                         response = client.create_and_post_order(
                             OrderArgs(
                                 token_id=token_id,
-                                price=price_f,
+                                price=target_buy_price,
                                 size=shares,
                                 side=BUY,
                             ),
@@ -840,13 +868,28 @@ def monitor_take_profit():
             sl = global_state.config.get('stop_loss_threshold', -0.08)
             max_hold_minutes = global_state.config.get('max_hold_time_minutes', 30)
             
+            # For maker properties, we want to know the best ask
+            # current_price uses best_bid to calculate valuation, but for Take Profit we might want to place at best_ask!
+            best_ask = 1.0
+            try:
+                ob = client.get_order_book(pos['token_id'])
+                if hasattr(ob, 'asks') and ob.asks:
+                    best_ask = float(ob.asks[0].price)
+                elif isinstance(ob, dict) and 'asks' in ob and ob['asks']:
+                    first_ask = ob['asks'][0]
+                    best_ask = float(first_ask.price if hasattr(first_ask, 'price') else first_ask.get('price', 1.0))
+            except Exception:
+                pass
+
             # Calculate time held
             entry_time = datetime.fromisoformat(pos['entry_timestamp'].replace('Z', '+00:00'))
             hold_time_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
             
             is_huge_profit = current_price > pos['entry_price'] * 2.0
             is_near_max = current_price >= 0.98
-            is_target_hit = current_price > pos['entry_price'] * (1 + tp)
+            # Profit logic checks current_price (bid) for valuation, 
+            # but if it hits target we can sell as Maker at the ask to maximize profit.
+            is_target_hit = current_price > pos['entry_price'] * (1 + tp) 
             is_stop_loss = pos['entry_price'] > 0 and (current_price - pos['entry_price']) / pos['entry_price'] < sl
             is_max_hold_time = hold_time_minutes > max_hold_minutes
 
@@ -879,11 +922,18 @@ def monitor_take_profit():
                     except Exception as allow_err:
                         print(f"     -> Allowance check failed, proceeding anyway (expected for proxy wallets): {allow_err}")
                     
-                    # Place a sell order slightly below current bid to ensure it hits or use the best bid exactly
-                    sell_price = round(current_price * 0.995, 3) # 0.5% discount to ensure fill
+                    # Maker Order Strategy:
+                    # If Stop Loss or Expiry, we need to exit FAST. Use taker (slightly below bid).
+                    # If Take Profit, we can be patient and earn the spread. Use maker (slightly below ask).
+                    if is_stop_loss or is_max_hold_time:
+                        sell_price = round(current_price * 0.995, 3) # Taker (discounted bid)
+                    else:
+                        sell_price = round(best_ask * 0.999, 3)      # Maker (undercut best ask)
+                        
                     if sell_price < 0.01: sell_price = 0.01
+                    if sell_price > 0.99: sell_price = 0.99
                     
-                    print(f"     -> Attempting SELL at ${sell_price}")
+                    print(f"     -> Attempting SELL at ${sell_price:.3f}")
                     order_args = OrderArgs(
                         price=sell_price,
                         size=round(pos['shares'], 2),
