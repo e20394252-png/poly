@@ -155,7 +155,7 @@ class BotState:
             "poll_interval": POLL_INTERVAL_SECONDS,
             "take_profit_threshold": 0.05,    # 5% TP
             "stop_loss_threshold": -0.25,     # -25% SL to weather the spread/noise
-            "max_spread": 0.03,               # Max 3 cents spread allowed
+            "max_spread": 0.06,               # Max 6 cents spread allowed
             "price_min": 0.70,                # High probability zone floor
             "price_max": 0.89,                # High probability zone ceiling
             "max_positions": 20,               # Limit concurrent positions
