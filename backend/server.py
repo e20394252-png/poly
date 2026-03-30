@@ -26,6 +26,17 @@ import threading
 
 bot_thread: threading.Thread | None = None
 
+@app.on_event("startup")
+async def startup_event():
+    """Auto-start the bot engine when the server starts."""
+    global bot_thread
+    if global_state.status != "running":
+        print(f"[{datetime.now().isoformat()}] Auto-starting bot thread on server startup...")
+        global_state.status = "running"
+        global_state.stop_event.clear()
+        bot_thread = threading.Thread(target=run_bot_loop, daemon=True)
+        bot_thread.start()
+
 @app.get("/api/status")
 async def get_status(background_tasks: BackgroundTasks):
     from bot import update_balance_and_positions
