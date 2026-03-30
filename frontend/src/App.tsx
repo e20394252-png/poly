@@ -238,6 +238,26 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  const handleSellPosition = async (tokenId: string | null = null) => {
+    try {
+      if (!window.confirm(tokenId ? "Are you sure you want to sell this position at market price?" : "Are you sure you want to PANIC SELL ALL active positions?")) {
+        return;
+      }
+      
+      const payload = tokenId ? { token_id: tokenId } : {};
+      const res = await fetch(`${API_URL}/api/sell_position`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      console.log("Sell Response:", json);
+      setTimeout(fetchData, 1000);
+    } catch (error) {
+      console.error("Sell error:", error);
+    }
+  };
+
   const handleStart = async () => {
     await fetch(`${API_URL}/api/start`, { method: 'POST' });
     fetchData();
@@ -341,7 +361,12 @@ const App: React.FC = () => {
         </div>
 
         <div className="card col-12">
-          <h2>ACTIVE POSITIONS <span style={{fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-dim)'}}>({(data?.positions ?? []).length} items)</span></h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2 style={{ marginBottom: 0 }}>ACTIVE POSITIONS <span style={{fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-dim)'}}>({(data?.positions ?? []).length} items)</span></h2>
+            <button className="btn btn-secondary" style={{ backgroundColor: '#EF4444', borderColor: '#DC2626', color: 'white', padding: '0.4rem 1rem', fontSize: '0.8rem' }} onClick={() => handleSellPosition(null)}>
+              SELL ALL POSITIONS
+            </button>
+          </div>
           <div className="table-container">
             <table>
               <thead>
@@ -377,6 +402,14 @@ const App: React.FC = () => {
                               {roi > 0 ? '+' : ''}{roi.toFixed(1)}%
                             </span>
                             <span style={{fontSize: '0.65rem', color: 'var(--text-dim)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px'}}>MONITORING</span>
+                            <button 
+                              onClick={() => handleSellPosition(pos.token_id)} 
+                              style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #DC2626', color: '#EF4444', borderRadius: '4px', padding: '2px 8px', fontSize: '0.7rem', cursor: 'pointer', transition: 'all 0.2s' }}
+                              onMouseOver={(e) => { e.currentTarget.style.background = '#DC2626'; e.currentTarget.style.color = '#fff'; }}
+                              onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#EF4444'; }}
+                            >
+                              SELL
+                            </button>
                           </div>
                         </td>
                       </tr>

@@ -69,6 +69,19 @@ async def stop_bot():
     return {"message": "Bot stop requested"}
 
 
+from pydantic import BaseModel
+from typing import Optional
+
+class SellRequest(BaseModel):
+    token_id: Optional[str] = None
+
+@app.post("/api/sell_position")
+async def api_sell_position(req: SellRequest):
+    from bot import force_sell_position
+    res = force_sell_position(req.token_id)
+    return res
+
+
 @app.post("/api/redeem")
 async def redeem_position():
     """

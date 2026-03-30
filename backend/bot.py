@@ -440,9 +440,10 @@ def filter_short_term_opportunities(events: List[dict]) -> List[dict]:
     opportunities = []
     now = datetime.now(timezone.utc)
     
-    # STRATEGY: Volatility Scalping — scan 3-day window for immediate/short-lived markets
+    # STRATEGY: Volatility Scalping — scan window for immediate/short-lived markets
     min_time = now + timedelta(minutes=1)
-    max_time = now + timedelta(days=3)
+    max_hours = float(os.getenv("MAX_EVENT_END_HOURS", "24"))
+    max_time = now + timedelta(hours=max_hours)
     
     for event in events:
         try:
@@ -589,6 +590,13 @@ def analyze_and_trade(opportunities, placed_trades):
                         shares = min_size
                     cost_est = shares * price_f
                         
+                    max_allowed_cost = TRADE_AMOUNT_USDC * 1.5
+                    if cost_est > max_allowed_cost:
+                        msg = f"[{datetime.now().isoformat()}]          -> Cannot place order: minimum cost ${cost_est:.2f} exceeds budget limit of ${max_allowed_cost:.2f}."
+                        print(msg)
+                        global_state.add_log(f"DEBUG: Order skipped for '{outcome}' - exceeds budget limit (${cost_est:.2f} > ${max_allowed_cost:.2f})")
+                        continue
+
                     print(
                         f"[{datetime.now().isoformat()}]          -> Attempting to place order: BUY {shares} shares of '{outcome}' "
                         f"at ${price_f:.3f} (est. cost ${cost_est:.2f}, confidence: {confidence_multiplier:.2f})"
@@ -907,6 +915,107 @@ def monitor_take_profit():
             remaining_positions.append(pos)
             
     global_state.positions = remaining_positions
+
+def force_sell_position(token_id: str = None) -> dict:
+    """
+    Force sells a specific position by token_id, or all positions if token_id is None.
+    Updates global_state.positions accordingly.
+    """
+    if not client or not global_state.positions:
+        return {"ok": False, "error": "No positions or client not initialized"}
+        
+    global_state.add_log(f"MANUAL SELL TRIGGERED for {'all positions' if not token_id else token_id}")
+    
+    results = []
+    remaining_positions = []
+    
+    for pos in global_state.positions:
+        if token_id and pos['token_id'] != token_id:
+            remaining_positions.append(pos)
+            continue
+            
+        try:
+            # Get best price
+            current_price = 0.0
+            best_bid = 0.0
+            try:
+                ob = client.get_order_book(pos['token_id'])
+                if hasattr(ob, 'bids') and ob.bids:
+                    best_bid = float(ob.bids[0].price)
+                elif isinstance(ob, dict) and 'bids' in ob and ob['bids']:
+                    first_bid = ob['bids'][0]
+                    best_bid = float(first_bid.price if hasattr(first_bid, 'price') else first_bid.get('price', 0))
+            except Exception as ob_err:
+                pass
+                
+            if current_price == 0:
+                try:
+                    price_info = client.get_midpoint(pos['token_id'])
+                    current_price = float(price_info.get('midpoint', 0))
+                except Exception:
+                    pass
+            if current_price == 0:
+                try:
+                    last_trade = client.get_last_trade_price(pos['token_id'])
+                    current_price = float(last_trade.get('price', 0))
+                except Exception:
+                    pass
+            if current_price == 0:
+                current_price = pos.get('current_price', 0)
+                
+            if best_bid > 0:
+                current_price = best_bid
+                
+            # Sell Order Execution
+            try:
+                allowance_params = BalanceAllowanceParams(
+                    asset_type=AssetType.CONDITIONAL,
+                    token_id=pos['token_id']
+                )
+                try:
+                    client.update_balance_allowance(allowance_params)
+                except Exception:
+                    pass
+                
+                sell_price = round(current_price * 0.995, 3) 
+                if sell_price < 0.01: sell_price = 0.01
+                
+                order_args = OrderArgs(
+                    price=sell_price,
+                    size=round(pos['shares'], 2),
+                    side=SELL,
+                    token_id=pos['token_id']
+                )
+                res = client.create_and_post_order(order_args)
+                
+                profit = (sell_price - pos['entry_price']) * pos['shares']
+                global_state.realized_profit += profit
+                
+                global_state.add_trade({
+                    "timestamp": datetime.now().isoformat(),
+                    "title": pos['title'],
+                    "market": "MANUAL EXIT",
+                    "outcome": "SELL",
+                    "price": sell_price,
+                    "size": pos['shares'],
+                    "status": "success",
+                    "order_id": str(res.get('orderID', 'MANUAL_EXIT')) if isinstance(res, dict) else "MANUAL_EXIT"
+                })
+                results.append({"token_id": pos['token_id'], "status": "success", "price": sell_price})
+                # Don't add to remaining_positions
+                continue 
+            except Exception as sell_err:
+                global_state.add_log(f"Force Sell Failed for {pos['title']}: {sell_err}")
+                results.append({"token_id": pos['token_id'], "status": "failed", "error": str(sell_err)})
+                remaining_positions.append(pos)
+                
+        except Exception as e:
+            global_state.add_log(f"Error in force_sell for {pos.get('title')}: {e}")
+            results.append({"token_id": pos['token_id'], "status": "failed", "error": str(e)})
+            remaining_positions.append(pos)
+            
+    global_state.positions = remaining_positions
+    return {"ok": True, "results": results}
 
 def run_bot_loop():
     """Main trading loop."""
