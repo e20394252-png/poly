@@ -590,7 +590,12 @@ def analyze_and_trade(opportunities, placed_trades):
                         shares = min_size
                     cost_est = shares * price_f
                         
-                    max_allowed_cost = TRADE_AMOUNT_USDC * 1.5
+                    max_allowed_cost = max(TRADE_AMOUNT_USDC * 1.5, 5.0) # Flex to $5 for min_size limits
+                    
+                    if cost_est > global_state.balance:
+                        global_state.add_log(f"DEBUG: Insufficient balance for '{outcome}' (${cost_est:.2f} cost > ${global_state.balance:.2f} bank)")
+                        continue
+                        
                     if cost_est > max_allowed_cost:
                         msg = f"[{datetime.now().isoformat()}]          -> Cannot place order: minimum cost ${cost_est:.2f} exceeds budget limit of ${max_allowed_cost:.2f}."
                         print(msg)
@@ -736,7 +741,7 @@ def update_balance_and_positions():
                         if size > 0 and token_id and token_id not in found_token_ids:
                             print(f"Found position: {pos.get('title')} ({size} shares)")
                             # FIX: Preserve original entry_timestamp — don't let it shift every poll
-                            original_ts = existing_timestamps.get(token_id, datetime.now().isoformat())
+                            original_ts = existing_timestamps.get(token_id, datetime.now(timezone.utc).isoformat())
                             new_positions.append({
                                 "token_id": token_id,
                                 "market_id": pos.get('conditionId'),
@@ -886,6 +891,14 @@ def monitor_take_profit():
                         token_id=pos['token_id']
                     )
                     res = client.create_and_post_order(order_args)
+                    
+                    if isinstance(res, dict) and (res.get("errorMsg") or res.get("error")):
+                        err = res.get("errorMsg") or res.get("error")
+                        print(f"     -> API Rejected Sell: {err}")
+                        global_state.add_log(f"Auto Sell Rejected ({pos.get('outcome')}): {err}")
+                        remaining_positions.append(pos)
+                        continue
+
                     print(f"     -> Sell Order Posted: {res}")
                     
                     # Update realized profit estimate
