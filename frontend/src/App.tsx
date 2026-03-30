@@ -383,6 +383,8 @@ const App: React.FC = () => {
                   <th>SIDE</th>
                   <th>ENTRY</th>
                   <th>CURRENT</th>
+                  <th>SIZE</th>
+                  <th>VALUE</th>
                   <th>ROI / STATUS</th>
                 </tr>
               </thead>
@@ -403,6 +405,8 @@ const App: React.FC = () => {
                         <td><span className={`badge ${pos.outcome.toLowerCase() === 'yes' ? 'green' : (pos.outcome.toLowerCase() === 'no' ? 'red' : '')}`}>{pos.outcome}</span></td>
                         <td>${pos.entry_price.toFixed(3)}</td>
                         <td style={{color: isProfitable ? 'var(--success)' : (isLosing ? 'var(--danger)' : 'var(--text)')}}>${currentPrice.toFixed(3)}</td>
+                        <td>{pos.shares.toFixed(2)}</td>
+                        <td style={{fontWeight: 500}}>${(pos.shares * currentPrice).toFixed(2)}</td>
                         <td>
                           <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center'}}>
                             <span style={{ fontWeight: 600, color: isProfitable ? 'var(--success)' : (isLosing ? 'var(--danger)' : 'var(--text)') }}>

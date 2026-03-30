@@ -663,7 +663,6 @@ def analyze_and_trade(opportunities, placed_trades):
                         })
                             
                 else:
-                    global_state.add_log(f"DEBUG: Outcome '{outcome}' for market '{question}': price ${price_f:.2f} outside scalp range [{price_min:.2f}, {price_max:.2f}].")
                     print(f"[{datetime.now().isoformat()}]      - Outcome '{outcome}': ${price_f:.2f} (Outside volatility zone)")
     
     print(f"[{datetime.now().isoformat()}] Analysis Complete: Scanned {total_markets_scanned} markets, found {opportunities_found} opportunities.")
@@ -906,6 +905,7 @@ def monitor_take_profit():
                     continue # Successfully queued/executed, remove from tracking
                 except Exception as sell_err:
                     print(f"     -> Sell Failed: {sell_err}")
+                    global_state.add_log(f"Auto Sell Failed for {pos['title']}: {sell_err}")
 
             remaining_positions.append(pos)
         except Exception as e:
