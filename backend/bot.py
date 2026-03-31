@@ -153,10 +153,10 @@ class BotState:
         self.config = {
             "trade_amount": TRADE_AMOUNT_USDC,
             "poll_interval": POLL_INTERVAL_SECONDS,
-            "take_profit_threshold": 0.05,    # 5% TP
-            "stop_loss_threshold": -0.25,     # -25% SL to weather the spread/noise
-            "max_spread": 0.06,               # Max 6 cents spread allowed
-            "price_min": 0.70,                # High probability zone floor
+            "take_profit_threshold": 0.08,    # 8% TP (needs to overcome initial spread)
+            "stop_loss_threshold": -0.25,     # -25% SL
+            "max_spread": 0.08,               # Max 8 cents spread allowed
+            "price_min": 0.50,                # Broadened floor to 50% for more trades
             "price_max": 0.89,                # High probability zone ceiling
             "max_positions": 20,               # Limit concurrent positions
             "max_hold_time_minutes": 30,       # Max hold time for positions
@@ -595,14 +595,14 @@ def analyze_and_trade(opportunities, placed_trades):
                             best_ask = float(first_ask.price if hasattr(first_ask, 'price') else first_ask.get('price', 1.0))
                             
                         spread = best_ask - best_bid
-                        max_spread = global_state.config.get('max_spread', 0.03)
+                        max_spread = global_state.config.get('max_spread', 0.08)
                         
-                        if best_bid <= 0 or spread > max_spread:
+                        if best_ask <= 0 or spread > max_spread:
                             print(f"[{datetime.now().isoformat()}]          -> Spread too high or no buyers (Bid: {best_bid:.3f}, Ask: {best_ask:.3f}, Spread: {spread:.3f}). Skipping.")
                             continue
                             
-                        # Maker Strategy: Target the best bid to avoid paying the spread.
-                        target_buy_price = best_bid
+                        # Taker Strategy: Hit the Ask to fill instantly, ONLY if spread is acceptable.
+                        target_buy_price = best_ask
                         
                     except Exception as ob_err:
                         print(f"[{datetime.now().isoformat()}]          -> Error fetching orderbook for spread check: {ob_err}")
@@ -631,7 +631,7 @@ def analyze_and_trade(opportunities, placed_trades):
                         continue
 
                     print(
-                        f"[{datetime.now().isoformat()}]          -> Attempting to place Maker BUY {shares} shares of '{outcome}' "
+                        f"[{datetime.now().isoformat()}]          -> Attempting to place INSTANT BUY {shares} shares of '{outcome}' "
                         f"at ${target_buy_price:.3f} (est. cost ${cost_est:.2f}, confidence: {confidence_multiplier:.2f})"
                     )
                     
