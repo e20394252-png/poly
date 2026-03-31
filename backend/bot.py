@@ -443,7 +443,7 @@ def filter_short_term_opportunities(events: List[dict]) -> List[dict]:
     
     # STRATEGY: Volatility Scalping — scan window for immediate/short-lived markets
     min_time = now + timedelta(minutes=1)
-    max_hours = float(os.getenv("MAX_EVENT_END_HOURS", "24"))
+    max_hours = float(os.getenv("MAX_EVENT_END_HOURS", "720"))  # Default: 30 days
     max_time = now + timedelta(hours=max_hours)
     
     for event in events:
