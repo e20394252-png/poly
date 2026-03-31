@@ -423,7 +423,12 @@ def fetch_active_events():
         global_state.add_log(f"Fetching active events from Gamma API (Sorted by volume)...")
         
         # We fetch in one big chunk of 1000 now that we have sorting
-        response = requests.get(url, timeout=30)
+        # Explicitly bypass the proxy for Gamma API, as it's public and proxies often get Cloudflare-blocked here.
+        bypass_proxies = {
+            "http": None,
+            "https": None,
+        }
+        response = requests.get(url, timeout=30, proxies=bypass_proxies)
         if response.status_code == 200:
             all_events = response.json()
             global_state.add_log(f"Total active events fetched: {len(all_events)}")
