@@ -507,8 +507,8 @@ def analyze_and_trade(opportunities, placed_trades):
         markets = event.get('markets', [])
         for market in markets:
             total_markets_scanned += 1
-            if not market.get('active') or market.get('closed'):
-                global_state.add_log(f"DEBUG: Market '{question}' filtered - not active or closed.")
+            if not market.get('active', False) or market.get('closed', False):
+                # We skip inactive markets silently to prevent log spam.
                 continue
             
             question = market.get('question')
@@ -618,6 +618,7 @@ def analyze_and_trade(opportunities, placed_trades):
                     adjusted_trade_amount = TRADE_AMOUNT_USDC * (0.7 + 0.3 * confidence_multiplier)
                     
                     shares = round(adjusted_trade_amount / target_buy_price, 2) if target_buy_price > 0 else 0.0
+                    min_size = float(market.get('orderMinSize', 1.0))
                     if shares < min_size:
                         # If stake is too small for the market, bump to minimum size.
                         shares = min_size
