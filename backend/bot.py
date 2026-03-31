@@ -455,7 +455,7 @@ def filter_short_term_opportunities(events: List[dict]) -> List[dict]:
         try:
             end_date_str = event.get('endDate')
             if not end_date_str:
-                global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - no endDate.")
+                # global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - no endDate.")
                 continue
 
             end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
@@ -464,11 +464,11 @@ def filter_short_term_opportunities(events: List[dict]) -> List[dict]:
             if FOCUS_CATEGORIES:
                 event_tags = [t.get('label', '').lower() for t in event.get('tags', []) if isinstance(t, dict)]
                 if not any(cat.lower() in event_tags for cat in FOCUS_CATEGORIES):
-                    global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - category mismatch. Tags: {event_tags}, Focus: {FOCUS_CATEGORIES}")
+                    # global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - category mismatch.")
                     continue
 
             if not (min_time <= end_date <= max_time):
-                global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - outside time window ({end_date}). Min: {min_time}, Max: {max_time}")
+                # global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - outside time window.")
                 continue
 
             opportunities.append(event)
