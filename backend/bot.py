@@ -155,10 +155,10 @@ class BotState:
             "poll_interval": POLL_INTERVAL_SECONDS,
             "take_profit_threshold": 0.08,    # 8% TP (needs to overcome initial spread)
             "stop_loss_threshold": -0.25,     # -25% SL
-            "max_spread": 0.08,               # Max 8 cents spread allowed
-            "price_min": 0.50,                # Broadened floor to 50% for more trades
-            "price_max": 0.89,                # High probability zone ceiling
-            "max_positions": 20,               # Limit concurrent positions
+            "max_spread": 0.15,               # Max 15 cents spread allowed to guarantee entering trades
+            "price_min": 0.10,                # Broadened floor to 10%
+            "price_max": 0.95,                # Ceiling to 95%
+            "max_positions": 20,              # Limit concurrent positions
             "max_hold_time_minutes": 30,       # Max hold time for positions
         }
         self.stop_event = threading.Event()
@@ -460,12 +460,12 @@ def filter_short_term_opportunities(events: List[dict]) -> List[dict]:
 
             end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
 
-            # Category Filtering
-            if FOCUS_CATEGORIES:
-                event_tags = [t.get('label', '').lower() for t in event.get('tags', []) if isinstance(t, dict)]
-                if not any(cat.lower() in event_tags for cat in FOCUS_CATEGORIES):
-                    # global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - category mismatch.")
-                    continue
+            # Category Filtering has been disabled for aggressive scanning
+            # if FOCUS_CATEGORIES:
+            #     event_tags = [t.get('label', '').lower() for t in event.get('tags', []) if isinstance(t, dict)]
+            #     if not any(cat.lower() in event_tags for cat in FOCUS_CATEGORIES):
+            #         # global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - category mismatch.")
+            #         continue
 
             if not (min_time <= end_date <= max_time):
                 # global_state.add_log(f"DEBUG: Event '{event.get('title', 'N/A')}' filtered - outside time window.")
@@ -629,15 +629,10 @@ def analyze_and_trade(opportunities, placed_trades):
                     max_allowed_cost = max(TRADE_AMOUNT_USDC * 1.5, 5.0) # Flex to $5 for min_size limits
                     
                     if cost_est > global_state.balance:
-                        global_state.add_log(f"DEBUG: Insufficient balance for '{outcome}' (${cost_est:.2f} cost > ${global_state.balance:.2f} bank)")
+                        global_state.add_log(f"SKIP: Insufficient balance for '{outcome}' (${cost_est:.2f} cost > ${global_state.balance:.2f} bank)")
                         continue
                         
-                    if cost_est > max_allowed_cost:
-                        msg = f"[{datetime.now().isoformat()}]          -> Cannot place order: minimum cost ${cost_est:.2f} exceeds budget limit of ${max_allowed_cost:.2f}."
-                        print(msg)
-                        global_state.add_log(f"DEBUG: Order skipped for '{outcome}' - exceeds budget limit (${cost_est:.2f} > ${max_allowed_cost:.2f})")
-                        continue
-
+                    # We no longer block on max_allowed_cost, we trade as long as bank balance suffices.
                     global_state.add_log(f"ATTEMPT: BUY {shares} '{outcome}' @ ${target_buy_price:.2f} (cost ${cost_est:.2f})")
                     print(
                         f"[{datetime.now().isoformat()}]          -> Attempting to place INSTANT BUY {shares} shares of '{outcome}' "
