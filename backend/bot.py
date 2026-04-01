@@ -579,7 +579,7 @@ def analyze_and_trade(opportunities, placed_trades):
                     
                     # Check Maker logic and Spread
                     if client is None:
-                        global_state.add_log(f"DEBUG: Cannot place order for '{outcome}' - CLOB Client is not initialized.")
+                        global_state.add_log(f"ERROR: Cannot place order for '{outcome}' - CLOB Client is not initialized.")
                         print(f"[{datetime.now().isoformat()}]          -> Cannot place order: CLOB Client is not initialized.")
                         continue
                         
@@ -603,6 +603,8 @@ def analyze_and_trade(opportunities, placed_trades):
                         max_spread = global_state.config.get('max_spread', 0.08)
                         
                         if best_ask <= 0 or spread > max_spread:
+                            short_question = (question[:30] + '..') if len(question) > 30 else question
+                            global_state.add_log(f"SKIP: '{short_question}' ({outcome}) - Spread too high or no buyers (Bid: {best_bid:.2f}, Ask: {best_ask:.2f})")
                             print(f"[{datetime.now().isoformat()}]          -> Spread too high or no buyers (Bid: {best_bid:.3f}, Ask: {best_ask:.3f}, Spread: {spread:.3f}). Skipping.")
                             continue
                             
@@ -636,6 +638,7 @@ def analyze_and_trade(opportunities, placed_trades):
                         global_state.add_log(f"DEBUG: Order skipped for '{outcome}' - exceeds budget limit (${cost_est:.2f} > ${max_allowed_cost:.2f})")
                         continue
 
+                    global_state.add_log(f"ATTEMPT: BUY {shares} '{outcome}' @ ${target_buy_price:.2f} (cost ${cost_est:.2f})")
                     print(
                         f"[{datetime.now().isoformat()}]          -> Attempting to place INSTANT BUY {shares} shares of '{outcome}' "
                         f"at ${target_buy_price:.3f} (est. cost ${cost_est:.2f}, confidence: {confidence_multiplier:.2f})"
